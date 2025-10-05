@@ -72,6 +72,25 @@ class SeekApplier:
             url = f"https://www.seek.com.au/job/{job_id}"
             self.chrome_driver.navigate_to(url)
 
+            # Wait a moment for page to load
+            time.sleep(2)
+
+            # Check if job is no longer advertised (expired/stale)
+            try:
+                page_source = self.chrome_driver.driver.page_source
+                stale_indicators = [
+                    "This job is no longer advertised",
+                    "job is no longer advertised",
+                    "Jobs remain on SEEK for 30 days",
+                    "expiredJobPage",
+                ]
+
+                if any(indicator in page_source for indicator in stale_indicators):
+                    logging.info(f"Job {job_id} is no longer advertised (STALE)")
+                    return "STALE"
+            except Exception as e:
+                logging.warning(f"Error checking for stale job: {e}")
+
             # Look for apply button with a short timeout
             try:
                 apply_button = WebDriverWait(self.chrome_driver.driver, 5).until(
@@ -89,7 +108,7 @@ class SeekApplier:
         except Exception as e:
             raise Exception(f"Failed to navigate to job {job_id}: {str(e)}")
 
-    def _handle_resume(self, job_id: str, tech_stack: str):
+    def _handle_resume(self, job_id: str, tech_stack):
         """Handle resume selection for Seek applications."""
         try:
             WebDriverWait(self.chrome_driver.driver, 10).until(
@@ -99,7 +118,15 @@ class SeekApplier:
             )
 
             resume_id = self.aws_resume_id
-            if "azure" in tech_stack.lower():
+
+            # Handle tech_stack as either string or list
+            tech_stack_str = ""
+            if isinstance(tech_stack, list):
+                tech_stack_str = " ".join(tech_stack).lower()
+            elif isinstance(tech_stack, str):
+                tech_stack_str = tech_stack.lower()
+
+            if "azure" in tech_stack_str:
                 resume_id = self.azure_resume_id
 
             resume_select = Select(
@@ -268,7 +295,11 @@ class SeekApplier:
     def _handle_screening_questions(self) -> bool:
         """Handle any screening questions on the application."""
         try:
+            import time
+
+            overall_start = time.time()
             print("On screening questions page")
+
             try:
                 WebDriverWait(self.chrome_driver.driver, 3).until(
                     lambda driver: len(self.question_handler.get_form_elements(driver))
@@ -284,23 +315,31 @@ class SeekApplier:
             # Check for validation errors first
             has_validation_errors = False
             try:
+                validation_start = time.time()
+                print("⏱️  Checking for validation errors...")
                 has_validation_errors = self.question_handler.has_validation_errors(
                     self.chrome_driver.driver
                 )
+                print(f"⏱️  Validation check took {time.time() - validation_start:.3f}s")
                 if has_validation_errors:
                     logging.warning(
                         "Validation errors detected on form, will retry with validation context"
                     )
             except Exception as validation_error:
+                print(
+                    f"⏱️  Validation check failed after {time.time() - validation_start:.3f}s"
+                )
                 logging.warning(
                     f"Error checking for validation errors: {validation_error}"
                 )
                 # Continue processing even if validation check fails
                 has_validation_errors = False
 
+            extraction_start = time.time()
             elements = self.question_handler.get_form_elements(
                 self.chrome_driver.driver
             )
+            print(f"⏱️  Total extraction time: {time.time() - extraction_start:.3f}s")
             print(f"Found {len(elements)} elements")
 
             # If no elements found, try waiting a bit and checking again
@@ -320,24 +359,64 @@ class SeekApplier:
                 )
                 return True
 
-            for element_info in elements:
-                print(f"Processing question: {element_info}")
-                try:
-                    # Use validation-aware method if we detected errors
+            print(f"\n⏱️  Starting to process {len(elements)} questions")
+
+            # Get all AI responses in parallel first
+            print("⏱️  Fetching all AI responses in parallel...")
+            parallel_start = time.time()
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            ai_responses = {}
+            with ThreadPoolExecutor(max_workers=min(len(elements), 5)) as executor:
+                # Submit all AI requests
+                future_to_idx = {}
+                for idx, element_info in enumerate(elements):
                     if has_validation_errors:
-                        ai_response = self.question_handler.get_ai_form_response_with_validation_context(
+                        future = executor.submit(
+                            self.question_handler.get_ai_form_response_with_validation_context,
                             element_info,
                             self.current_tech_stack,
                             self.current_job_description,
-                            has_validation_error=True,
+                            True,
                         )
                     else:
-                        ai_response = self.question_handler.get_ai_form_response(
+                        future = executor.submit(
+                            self.question_handler.get_ai_form_response,
                             element_info,
                             self.current_tech_stack,
                             self.current_job_description,
                         )
+                    future_to_idx[future] = idx
 
+                # Collect results as they complete
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        ai_responses[idx] = future.result()
+                        print(f"✓ Got response for question {idx + 1}")
+                    except Exception as e:
+                        logging.error(
+                            f"Error getting AI response for question {idx + 1}: {e}"
+                        )
+                        ai_responses[idx] = None
+
+            parallel_elapsed = time.time() - parallel_start
+            print(
+                f"⏱️  Got all {len(elements)} AI responses in {parallel_elapsed:.3f}s (parallel)"
+            )
+
+            # Now apply all responses sequentially
+            print(f"\n⏱️  Applying responses to form...")
+            for idx, element_info in enumerate(elements):
+                print(f"\n{'='*60}")
+                print(
+                    f"Question {idx + 1}/{len(elements)}: {element_info.get('question', 'N/A')}"
+                )
+                print(f"{'='*60}")
+
+                try:
+                    ai_response = ai_responses.get(idx)
                     print(f"AI response: {ai_response}")
 
                     if not ai_response:
@@ -346,9 +425,14 @@ class SeekApplier:
                         )
                         continue
 
+                    apply_start = time.time()
+
                     self.question_handler.apply_ai_response(
                         element_info, ai_response, self.chrome_driver.driver
                     )
+
+                    apply_elapsed = time.time() - apply_start
+                    print(f"⏱️  Applied response in {apply_elapsed:.3f}s")
                     print(f"Applied {element_info['question']} with {ai_response}")
 
                 except Exception as e:
@@ -359,6 +443,9 @@ class SeekApplier:
 
             # Wait a moment for form updates
             time.sleep(1)
+
+            total_elapsed = time.time() - overall_start
+            print(f"⏱️  Total screening questions time: {total_elapsed:.3f}s")
 
             try:
                 continue_button = WebDriverWait(self.chrome_driver.driver, 3).until(
@@ -479,6 +566,8 @@ class SeekApplier:
             navigation_result = self._navigate_to_job(job_id)
             if navigation_result == "APPLIED":
                 return "APPLIED"
+            if navigation_result == "STALE":
+                return "STALE"
 
             self._handle_resume(job_id, tech_stack)
             self._handle_cover_letter(

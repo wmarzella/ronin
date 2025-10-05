@@ -23,6 +23,9 @@ class ValidationChecker:
             True if validation errors are present, False otherwise
         """
         try:
+            # Temporarily reduce implicit wait for fast validation checking
+            driver.implicitly_wait(0.5)
+
             # Look for common validation error messages
             error_messages = [
                 "Please make a selection",
@@ -35,10 +38,13 @@ class ValidationChecker:
             for message in error_messages:
                 if self._check_for_error_message(driver, message):
                     logging.warning(f"Found validation error: {message}")
+                    driver.implicitly_wait(10)  # Restore
                     return True
 
+            driver.implicitly_wait(10)  # Restore
             return False
         except Exception as e:
+            driver.implicitly_wait(10)  # Restore even on error
             logging.error(f"Error checking for validation errors: {str(e)}")
             return False
 

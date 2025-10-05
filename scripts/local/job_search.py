@@ -7,6 +7,11 @@ Simple script to search for jobs locally.
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 # Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 

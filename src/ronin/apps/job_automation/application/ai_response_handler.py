@@ -30,31 +30,42 @@ class AIResponseHandler:
             self.config = config
 
     def get_ai_form_response(
-        self, element_info: Dict, tech_stack: str, job_description: Optional[str] = None
+        self, element_info: Dict, tech_stack, job_description: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Get AI-generated response for a form element.
 
         Args:
             element_info: Dictionary containing information about the form element
-            tech_stack: The tech stack for the job
+            tech_stack: The tech stack for the job (string or list)
             job_description: The job description text (optional)
 
         Returns:
             Dictionary containing the AI-generated response for the form element or None if generation failed.
         """
         try:
-            tech_stack = tech_stack.lower()
+            # Handle tech_stack as either string or list
+            if isinstance(tech_stack, list):
+                tech_stack = " ".join(tech_stack).lower() if tech_stack else ""
+            elif isinstance(tech_stack, str):
+                tech_stack = tech_stack.lower()
+            else:
+                tech_stack = ""
 
+            import time
+
+            prompt_start = time.time()
             system_prompt = self._build_system_prompt()
             resume_text = self._get_resume_text(tech_stack)
             system_prompt += f"\n\nMy resume: {resume_text}"
-
             user_message = self._build_user_message(element_info, job_description)
+            print(f"⏱️  Built prompts in {time.time() - prompt_start:.3f}s")
 
+            api_start = time.time()
             response = self.ai_service.chat_completion(
                 system_prompt=system_prompt, user_message=user_message, temperature=0.3
             )
+            print(f"⏱️  OpenAI API call took {time.time() - api_start:.3f}s")
 
             print(response)
 
@@ -74,7 +85,7 @@ class AIResponseHandler:
     def get_ai_form_response_with_validation_context(
         self,
         element_info: Dict,
-        tech_stack: str,
+        tech_stack,
         job_description: Optional[str] = None,
         has_validation_error: bool = False,
     ) -> Optional[Dict]:
@@ -83,7 +94,7 @@ class AIResponseHandler:
 
         Args:
             element_info: Dictionary containing information about the form element
-            tech_stack: The tech stack for the job
+            tech_stack: The tech stack for the job (string or list)
             job_description: The job description text (optional)
             has_validation_error: Whether this field has a validation error
 
@@ -91,7 +102,13 @@ class AIResponseHandler:
             Dictionary containing the AI-generated response for the form element or None if generation failed.
         """
         try:
-            tech_stack = tech_stack.lower()
+            # Handle tech_stack as either string or list
+            if isinstance(tech_stack, list):
+                tech_stack = " ".join(tech_stack).lower() if tech_stack else ""
+            elif isinstance(tech_stack, str):
+                tech_stack = tech_stack.lower()
+            else:
+                tech_stack = ""
 
             system_prompt = self._build_system_prompt()
             resume_text = self._get_resume_text(tech_stack)

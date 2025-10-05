@@ -1,8 +1,12 @@
 """Chrome WebDriver manager for browser automation tasks."""
 
+import glob
+import json
 import logging
 import os
+import shutil
 import time
+import uuid
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -18,11 +22,17 @@ class ChromeDriver:
         self.driver = None
         self.is_logged_in = False
         self.user_data_dir = None
+        self.login_state_file = os.path.expanduser(
+            "~/chrome_automation_profile/login_state.json"
+        )
 
     def initialize(self) -> webdriver.Chrome:
         """Initialize Chrome WebDriver with local browser."""
         if self.driver:
             return self.driver
+
+        # Load saved login state
+        self.load_login_state()
 
         options = webdriver.ChromeOptions()
 
@@ -353,17 +363,107 @@ class ChromeDriver:
         try:
             self.navigate_to("https://www.seek.com.au")
 
-            print("\n=== Login Required ===")
-            print("1. Please sign in with Google in the browser window")
-            print("2. Make sure you're fully logged in")
-            print("3. Press Enter when ready to continue...")
-            input()
+            # Check if already logged in by looking for user account elements
+            try:
+                # Wait a moment for page to load
+                time.sleep(2)
 
-            self.is_logged_in = True
-            logging.info("Successfully logged into Seek")
+                # Look for elements that indicate user is logged in
+                logged_in_indicators = [
+                    "//a[contains(@href, '/account')]",
+                    "//button[contains(text(), 'Account')]",
+                    "//div[contains(@class, 'user-menu')]",
+                    "//a[contains(text(), 'My Account')]",
+                    "//button[contains(text(), 'Sign out')]",
+                    "//a[contains(text(), 'Sign out')]",
+                ]
+
+                for indicator in logged_in_indicators:
+                    try:
+                        element = self.driver.find_element(By.XPATH, indicator)
+                        if element and element.is_displayed():
+                            self.is_logged_in = True
+                            logging.info("User is already logged in to Seek")
+                            self.save_login_state()
+                            return
+                    except:
+                        continue
+
+                # If no logged-in indicators found, proceed with manual login
+                print("\n=== Login Required ===")
+                print("1. Please sign in with Google in the browser window")
+                print("2. Make sure you're fully logged in")
+                print("3. Press Enter when ready to continue...")
+                input()
+
+                # Verify login was successful
+                time.sleep(2)
+                for indicator in logged_in_indicators:
+                    try:
+                        element = self.driver.find_element(By.XPATH, indicator)
+                        if element and element.is_displayed():
+                            self.is_logged_in = True
+                            logging.info("Successfully logged into Seek")
+                            self.save_login_state()
+                            return
+                    except:
+                        continue
+
+                # If we get here, login verification failed
+                logging.warning("Could not verify login status, but continuing...")
+                self.is_logged_in = True
+                self.save_login_state()
+
+            except Exception as e:
+                logging.warning(f"Error checking login status: {e}")
+                # Fall back to manual login
+                print("\n=== Login Required ===")
+                print("1. Please sign in with Google in the browser window")
+                print("2. Make sure you're fully logged in")
+                print("3. Press Enter when ready to continue...")
+                input()
+                self.is_logged_in = True
+                self.save_login_state()
 
         except Exception as e:
             raise Exception(f"Failed to login to Seek: {str(e)}")
+
+    def save_login_state(self):
+        """Save login state to file."""
+        try:
+            login_state = {"is_logged_in": self.is_logged_in, "timestamp": time.time()}
+
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(self.login_state_file), exist_ok=True)
+
+            with open(self.login_state_file, "w") as f:
+                json.dump(login_state, f)
+
+            logging.info("Login state saved")
+        except Exception as e:
+            logging.warning(f"Failed to save login state: {e}")
+
+    def load_login_state(self):
+        """Load login state from file."""
+        try:
+            if os.path.exists(self.login_state_file):
+                with open(self.login_state_file, "r") as f:
+                    login_state = json.load(f)
+
+                # Check if login state is recent (within last 24 hours)
+                current_time = time.time()
+                if current_time - login_state.get("timestamp", 0) < 24 * 3600:
+                    self.is_logged_in = login_state.get("is_logged_in", False)
+                    logging.info(f"Loaded login state: {self.is_logged_in}")
+                else:
+                    logging.info("Login state expired, will re-check")
+                    self.is_logged_in = False
+            else:
+                logging.info("No saved login state found")
+                self.is_logged_in = False
+        except Exception as e:
+            logging.warning(f"Failed to load login state: {e}")
+            self.is_logged_in = False
 
     @property
     def current_url(self) -> str:

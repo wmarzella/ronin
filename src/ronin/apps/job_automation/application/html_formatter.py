@@ -23,118 +23,192 @@ class HTMLFormatter:
         Returns:
             List of dictionaries containing information about form elements
         """
+        import time
+
+        start_time = time.time()
         elements = []
+
+        # Temporarily reduce implicit wait to speed up searches for non-existent elements
+        driver.implicitly_wait(0.5)
 
         forms = driver.find_elements(By.TAG_NAME, "form")
         logging.info(f"Found {len(forms)} forms on the page")
 
-        for form in forms:
+        for idx, form in enumerate(forms):
             try:
+                # Check if we've been processing for too long (max 30 seconds)
+                if time.time() - start_time > 30:
+                    logging.warning(
+                        f"Form processing timeout after {idx} forms, returning what we have"
+                    )
+                    break
+
+                logging.info(f"Processing form {idx + 1}/{len(forms)}")
+
                 # Process checkbox groups
                 checkbox_elements = self._extract_checkbox_groups(form)
                 elements.extend(checkbox_elements)
+                logging.debug(
+                    f"Found {len(checkbox_elements)} checkbox groups in form {idx + 1}"
+                )
 
                 # Process radio groups
                 radio_elements = self._extract_radio_groups(form)
                 elements.extend(radio_elements)
+                logging.debug(
+                    f"Found {len(radio_elements)} radio groups in form {idx + 1}"
+                )
 
                 # Process other form elements (inputs, selects, textareas)
                 other_elements = self._extract_other_elements(form)
                 elements.extend(other_elements)
+                logging.debug(
+                    f"Found {len(other_elements)} other elements in form {idx + 1}"
+                )
 
             except Exception as e:
-                logging.warning(f"Error processing form: {str(e)}")
+                logging.warning(f"Error processing form {idx + 1}: {str(e)}")
                 continue
 
-        logging.info(f"Total form elements found: {len(elements)}")
+        # Restore implicit wait to default
+        driver.implicitly_wait(10)
+
+        elapsed = time.time() - start_time
+        logging.info(
+            f"Total form elements found: {len(elements)} (took {elapsed:.2f}s)"
+        )
         return elements
 
     def _extract_checkbox_groups(self, form) -> List[Dict]:
         """Extract checkbox groups from a form."""
+        import time
+
+        start = time.time()
         checkbox_groups = {}
 
-        checkbox_containers = form.find_elements(
-            By.XPATH,
-            ".//fieldset[.//input[@type='checkbox']] | .//div[.//strong and .//input[@type='checkbox']]",
-        )
+        # Get all checkboxes at once (faster than XPath)
+        checkboxes = form.find_elements(By.CSS_SELECTOR, 'input[type="checkbox"]')
+        print(f"⏱️  Found {len(checkboxes)} checkboxes in {time.time() - start:.3f}s")
 
-        for container in checkbox_containers:
-            question = self._extract_question_from_container(container)
-            if not question:
-                continue
+        if not checkboxes:
+            return []
 
-            checkboxes = container.find_elements(
-                By.CSS_SELECTOR, 'input[type="checkbox"]'
-            )
-            if not checkboxes:
-                continue
+        for checkbox in checkboxes:
+            try:
+                name = checkbox.get_attribute("name")
+                if not name or name in checkbox_groups:
+                    continue
 
-            name = checkboxes[0].get_attribute("name")
-            if not name:
-                continue
+                # Try to find the parent fieldset or container
+                try:
+                    container = checkbox.find_element(By.XPATH, "ancestor::fieldset[1]")
+                except:
+                    try:
+                        container = checkbox.find_element(
+                            By.XPATH, "ancestor::div[.//strong][1]"
+                        )
+                    except:
+                        continue
 
-            checkbox_groups[name] = {
-                "element": checkboxes[0],
-                "type": "checkbox",
-                "question": question,
-                "options": [],
-            }
+                question = self._extract_question_from_container(container)
+                if not question:
+                    continue
 
-            for checkbox in checkboxes:
-                label_text = self._extract_label_for_checkbox(container, checkbox)
-                checkbox_groups[name]["options"].append(
-                    {
-                        "id": checkbox.get_attribute("id"),
-                        "label": label_text,
-                    }
-                )
+                # Get all checkboxes with the same name
+                group_checkboxes = [
+                    cb for cb in checkboxes if cb.get_attribute("name") == name
+                ]
 
-        return list(checkbox_groups.values())
-
-    def _extract_radio_groups(self, form) -> List[Dict]:
-        """Extract radio groups from a form."""
-        radio_groups = {}
-        radios = form.find_elements(By.CSS_SELECTOR, 'input[type="radio"]')
-        logging.debug(f"Found {len(radios)} radio buttons in form")
-
-        for radio in radios:
-            name = radio.get_attribute("name")
-            if not name:
-                continue
-
-            question = self._extract_question_from_radio(radio)
-            if not question:
-                continue
-
-            if name not in radio_groups:
-                radio_groups[name] = {
-                    "element": radio,
-                    "type": "radio",
+                checkbox_groups[name] = {
+                    "element": checkbox,
+                    "type": "checkbox",
                     "question": question,
                     "options": [],
                 }
 
-            label_text = self._extract_label_for_radio(form, radio)
-            radio_groups[name]["options"].append(
-                {
-                    "id": radio.get_attribute("id"),
-                    "label": label_text,
-                }
-            )
-            logging.debug(
-                f"Added radio option: {label_text} (ID: {radio.get_attribute('id')})"
-            )
+                for cb in group_checkboxes:
+                    label_text = self._extract_label_for_checkbox(container, cb)
+                    checkbox_groups[name]["options"].append(
+                        {
+                            "id": cb.get_attribute("id"),
+                            "label": label_text,
+                        }
+                    )
+            except Exception as e:
+                logging.debug(f"Error processing checkbox: {e}")
+                continue
 
+        elapsed = time.time() - start
+        print(f"⏱️  Processed {len(checkbox_groups)} checkbox groups in {elapsed:.3f}s")
+        return list(checkbox_groups.values())
+
+    def _extract_radio_groups(self, form) -> List[Dict]:
+        """Extract radio groups from a form."""
+        import time
+
+        start = time.time()
+        radio_groups = {}
+        radios = form.find_elements(By.CSS_SELECTOR, 'input[type="radio"]')
+        print(f"⏱️  Found {len(radios)} radio buttons in {time.time() - start:.3f}s")
+
+        if not radios:
+            return []
+
+        logging.debug(f"Found {len(radios)} radio buttons in form")
+
+        for radio in radios:
+            try:
+                name = radio.get_attribute("name")
+                if not name:
+                    continue
+
+                # Only extract question once per group
+                if name not in radio_groups:
+                    question = self._extract_question_from_radio(radio)
+                    if not question:
+                        continue
+
+                    radio_groups[name] = {
+                        "element": radio,
+                        "type": "radio",
+                        "question": question,
+                        "options": [],
+                    }
+
+                label_text = self._extract_label_for_radio(form, radio)
+                radio_groups[name]["options"].append(
+                    {
+                        "id": radio.get_attribute("id"),
+                        "label": label_text,
+                    }
+                )
+                logging.debug(
+                    f"Added radio option: {label_text} (ID: {radio.get_attribute('id')})"
+                )
+            except Exception as e:
+                logging.debug(f"Error processing radio button: {e}")
+                continue
+
+        elapsed = time.time() - start
+        print(f"⏱️  Processed {len(radio_groups)} radio groups in {elapsed:.3f}s")
         return list(radio_groups.values())
 
     def _extract_other_elements(self, form) -> List[Dict]:
         """Extract other form elements (inputs, selects, textareas) from a form."""
+        import time
+
+        start = time.time()
         elements = []
 
-        for element in form.find_elements(
+        other_elements = form.find_elements(
             By.CSS_SELECTOR,
             "input:not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='submit']):not([type='button']), select, textarea",
-        ):
+        )
+        print(
+            f"⏱️  Found {len(other_elements)} other form elements in {time.time() - start:.3f}s"
+        )
+
+        for element in other_elements:
             element_type = element.get_attribute("type")
             if element_type == "select-one":
                 element_type = "select"
@@ -162,127 +236,192 @@ class HTMLFormatter:
                 f"Added form element: {element_info['type']} - {element_info['question'][:50]}..."
             )
 
+        elapsed = time.time() - start
+        print(f"⏱️  Processed {len(elements)} other elements in {elapsed:.3f}s")
         return elements
 
     def _extract_question_from_container(self, container) -> str:
         """Extract question text from a container element."""
         try:
-            question = container.find_element(
-                By.XPATH, ".//legend//strong | .//strong"
-            ).text.strip()
-            return question
+            # Try legend strong first (most common for fieldsets)
+            try:
+                return container.find_element(
+                    By.CSS_SELECTOR, "legend strong"
+                ).text.strip()
+            except:
+                pass
+
+            # Try any strong element
+            try:
+                return container.find_element(By.TAG_NAME, "strong").text.strip()
+            except:
+                pass
+
+            # Try legend without strong
+            try:
+                return container.find_element(By.TAG_NAME, "legend").text.strip()
+            except:
+                pass
+
         except Exception:
-            headings = container.find_elements(
-                By.XPATH,
-                "./preceding::*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6][1]",
-            )
-            if headings:
-                return headings[0].text.strip()
+            pass
+
         return ""
 
     def _extract_question_from_radio(self, radio) -> str:
         """Extract question text from a radio button element."""
         try:
-            fieldset = radio.find_element(By.XPATH, "ancestor::fieldset")
-            # Try multiple ways to find the question text
+            # Try to find ancestor fieldset (most common)
             try:
-                question = fieldset.find_element(
-                    By.XPATH, ".//legend//strong"
-                ).text.strip()
-                return question
-            except Exception:
+                fieldset = radio.find_element(By.XPATH, "ancestor::fieldset[1]")
+
+                # Try legend strong first
                 try:
-                    question = fieldset.find_element(By.XPATH, ".//legend").text.strip()
-                    return question
-                except Exception:
-                    question = fieldset.find_element(By.XPATH, ".//strong").text.strip()
-                    return question
-        except Exception:
+                    return fieldset.find_element(
+                        By.CSS_SELECTOR, "legend strong"
+                    ).text.strip()
+                except:
+                    pass
+
+                # Try legend
+                try:
+                    return fieldset.find_element(By.TAG_NAME, "legend").text.strip()
+                except:
+                    pass
+
+                # Try any strong
+                try:
+                    return fieldset.find_element(By.TAG_NAME, "strong").text.strip()
+                except:
+                    pass
+            except:
+                pass
+
+            # Try parent div with strong
             try:
                 parent_div = radio.find_element(By.XPATH, "ancestor::div[.//strong][1]")
-                question = parent_div.find_element(By.TAG_NAME, "strong").text.strip()
-                return question
-            except Exception:
+                return parent_div.find_element(By.TAG_NAME, "strong").text.strip()
+            except:
                 pass
+
+        except Exception:
+            pass
+
         return ""
 
     def _extract_label_for_checkbox(self, container, checkbox) -> str:
         """Extract label text for a checkbox element."""
-        label_text = ""
         try:
             checkbox_id = checkbox.get_attribute("id")
             if checkbox_id:
-                label = container.find_element(
-                    By.CSS_SELECTOR, f'label[for="{checkbox_id}"]'
-                )
-                label_text = label.text.strip()
-        except Exception:
-            try:
-                label = checkbox.find_element(
-                    By.XPATH,
-                    "ancestor::label | following-sibling::label",
-                )
-                label_text = label.text.strip()
-            except Exception:
+                # Try CSS selector first (fastest)
                 try:
-                    label_text = checkbox.find_element(
-                        By.XPATH, "following::text()[1]"
-                    ).strip()
-                except Exception:
-                    label_text = ""
-        return label_text
+                    label = container.find_element(
+                        By.CSS_SELECTOR, f'label[for="{checkbox_id}"]'
+                    )
+                    return label.text.strip()
+                except:
+                    pass
+
+            # Try parent label
+            try:
+                label = checkbox.find_element(By.XPATH, "ancestor::label[1]")
+                return label.text.strip()
+            except:
+                pass
+
+            # Try sibling label
+            try:
+                label = checkbox.find_element(By.XPATH, "following-sibling::label[1]")
+                return label.text.strip()
+            except:
+                pass
+
+        except Exception:
+            pass
+
+        return ""
 
     def _extract_label_for_radio(self, form, radio) -> str:
         """Extract label text for a radio button element."""
-        label_text = ""
         try:
             radio_id = radio.get_attribute("id")
             if radio_id:
-                label = form.find_element(By.CSS_SELECTOR, f'label[for="{radio_id}"]')
-                label_text = label.text.strip()
-        except Exception:
-            try:
-                # Try to find label by following sibling or parent structure
-                label = radio.find_element(
-                    By.XPATH,
-                    "ancestor::div//label | following-sibling::*//label",
-                )
-                label_text = label.text.strip()
-            except Exception:
+                # Try CSS selector first (fastest)
                 try:
-                    # Look for nearby text content
-                    parent = radio.find_element(By.XPATH, "parent::*")
-                    label_text = parent.text.strip()
-                    # Remove any text that's not the label
-                    if label_text and len(label_text) > 100:
-                        label_text = ""
-                except Exception:
-                    label_text = ""
-        return label_text
+                    label = form.find_element(
+                        By.CSS_SELECTOR, f'label[for="{radio_id}"]'
+                    )
+                    return label.text.strip()
+                except:
+                    pass
+
+            # Try parent label
+            try:
+                label = radio.find_element(By.XPATH, "ancestor::label[1]")
+                return label.text.strip()
+            except:
+                pass
+
+            # Try following sibling label
+            try:
+                label = radio.find_element(By.XPATH, "following-sibling::label[1]")
+                return label.text.strip()
+            except:
+                pass
+
+            # Try parent's sibling label (common pattern)
+            try:
+                parent = radio.find_element(By.XPATH, "parent::*")
+                label = parent.find_element(By.XPATH, "following-sibling::label[1]")
+                text = label.text.strip()
+                # Only use if reasonable length
+                if text and len(text) < 100:
+                    return text
+            except:
+                pass
+
+        except Exception:
+            pass
+
+        return ""
 
     def _find_element_label(self, form, element) -> object:
         """Find the label element for a form element."""
         try:
             element_id = element.get_attribute("id")
             if element_id:
-                label = form.find_element(By.CSS_SELECTOR, f'label[for="{element_id}"]')
-                return label
-        except Exception:
-            try:
-                label = element.find_element(
-                    By.XPATH,
-                    "ancestor::label | preceding-sibling::label[1]",
-                )
-                return label
-            except Exception:
+                # Try CSS selector first (fastest)
                 try:
-                    label = element.find_element(
-                        By.XPATH,
-                        "./preceding::*[self::strong or self::label or contains(@class, 'label')][1]",
+                    return form.find_element(
+                        By.CSS_SELECTOR, f'label[for="{element_id}"]'
                     )
-                    return label
-                except Exception:
+                except:
                     pass
+
+            # Try ancestor label
+            try:
+                return element.find_element(By.XPATH, "ancestor::label[1]")
+            except:
+                pass
+
+            # Try preceding sibling label
+            try:
+                return element.find_element(By.XPATH, "preceding-sibling::label[1]")
+            except:
+                pass
+
+            # Try preceding strong or label
+            try:
+                return element.find_element(
+                    By.XPATH, "preceding::*[self::strong or self::label][1]"
+                )
+            except:
+                pass
+
+        except Exception:
+            pass
+
         return None
 
     def _extract_question_text_from_label(self, label) -> str:

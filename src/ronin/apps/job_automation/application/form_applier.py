@@ -25,6 +25,10 @@ class FormApplier:
         Raises:
             Exception: If applying the response fails
         """
+        import time
+
+        start = time.time()
+
         try:
             element = element_info["element"]
             element_type = element_info["type"]
@@ -40,6 +44,9 @@ class FormApplier:
             else:
                 # Default to text input
                 self._apply_text_input_response(element, ai_response)
+
+            elapsed = time.time() - start
+            print(f"⏱️  Applied {element_type} response in {elapsed:.3f}s")
 
         except Exception as e:
             raise Exception(f"Failed to apply AI response: {str(e)}")
