@@ -1,0 +1,91 @@
+<!-- ROLE: data_engineer -->
+
+# William Marzella
+
+Mont Albert North, VIC | 0413414869 | [williampmarzella@gmail.com](mailto:williampmarzella@gmail.com)
+
+## Career Summary
+
+
+
+## Highlight of Capabilities
+
+
+## Education
+
+**University of Southern California** | Los Angeles, CA
+
+*BS, Mechanical Engineering* | 2016 -- 2020
+
+- Developed data acquisition system with Python deployed on cloud VMs processing 1000+ sensor readings/minute
+- Implemented database solutions for equipment tracking with automated data pipelines
+- Created automated analysis workflows reducing processing time by 60%
+
+## Certifications
+
+- Azure Databricks & Spark For Data Engineers (PySpark / SQL) -- ** | 2024
+- AWS Solutions Architect -- ** | 2023
+- Stanford Machine Learning -- ** | 2020
+
+## Experience (Full Time)
+
+### **Alfab Pty Ltd** | Melbourne, VIC
+
+Australia's leading manufacturer of marine and automotive glass products and aluminum fabrications.
+
+*Senior Data Engineer* | October 2023 -- Present
+
+Working as part of the data engineering team modernizing manufacturing data infrastructure. Collaborate closely with manufacturing operations and IT teams to enhance data platform capabilities while maintaining data governance requirements. Work alongside an offshore team of 2 developers to implement data pipelines and tools.
+
+- Implemented multi-cloud data warehouse architecture using Snowflake on AWS and Azure Databricks processing 800GB manufacturing data, resulting in 35% infrastructure cost reduction ($150K annually)
+- Developed serverless functions (AWS Lambda, Azure Functions) with 85% test coverage ensuring data integrity and reducing downstream errors by 40%
+- Architected real-time data streaming solution using Apache Kafka (AWS MSK, Azure Event Hubs) with Debezium connectors enabling predictive maintenance algorithms
+- Implemented CI/CD pipelines with GitHub Actions deploying to both AWS and Azure environments, reducing deployment cycles by 40%
+- Developed unified monitoring solution with Grafana dashboards tracking 15 key pipeline metrics across cloud platforms, reducing MTTR by 50%
+- Created comprehensive cloud architecture documentation and data dictionary, decreasing onboarding time for cross-platform engineers by 40%
+
+### **Tray.io** | San Diego, CA
+
+Enterprise integration platform enabling automated workflows across cloud and on-premise systems
+
+*Platform Engineer* | April 2021 -- October 2023
+
+Member of the platform engineering team developing customer analytics capabilities for healthcare and fintech clients. Focused on processing customer interaction data while adhering to compliance requirements. Contributed to solutions enabling customer behavior analysis. Supported data platform serving 200+ enterprise clients processing over 1B monthly events.
+
+- Engineered data pipelines on both AWS EMR and Azure Databricks using Spark and Delta Lake processing 10M+ daily customer events
+- Implemented cross-platform customer journey analytics using PySpark and SQL (Redshift, Azure Databricks) improving marketing retention metrics by 25% ($2M+ in preserved ARR)
+- Designed fault-tolerant workflows (AWS Step Functions, Azure Logic Apps) with error handling and retry logic, improving pipeline reliability by 40%
+- Developed data quality framework using Great Expectations ensuring 95% accuracy across 8 data sources regardless of cloud platform
+- Implemented unified monitoring solution reducing MTTR to 30 minutes and minimizing system downtime by 75%
+
+### **Chilton's Artisan Foods** | Melbourne, VIC
+
+Food manufacturer making premium wholesale bakery products in Melbourne using local Australian ingredients.
+
+*Data Engineer* | July 2019 -- April 2021
+
+First data hire supporting 12-person manufacturing operation with $10M annual revenue. Worked directly with production managers and finance team to understand requirements and implement initial data solutions
+
+- Migrated legacy data warehouse to cloud databases (AWS RDS, Azure SQL) with automated ETL processes, saving 25 hours weekly
+- Designed ETL processes with parameterized configurations (AWS Glue, SSIS on Azure), reducing manual data entry by 70%
+- Implemented data validation logic using database constraints and triggers, preventing $50K in monthly waste
+- Established Git-based version control (AWS CodeCommit, Azure DevOps) for database changes, reducing deployment rollbacks by 65%
+- Developed business intelligence dashboards (PowerBI connected to both AWS and Azure data sources), reducing monthly reporting time from 3 days to 4 hours
+- Created monitoring solution tracking 8 critical production KPIs, enabling 30% improvement in production efficiency
+
+## Experience (Freelance)
+
+### **Motis Group** | Melbourne, VIC
+
+Independent technology consultancy offering specialized cloud and automation solutions (Part-time)
+
+*Founder & Principal Engineer* | June 2022 -- Present
+
+Provide strategic data consulting to e-commerce and retail clients with $5M-50M annual revenue
+
+- Implemented data lake architectures on both AWS S3 and Azure Data Lake Storage for e-commerce clients processing 50GB+ monthly data
+- Developed ETL pipelines using AWS Glue and Azure Data Factory with PySpark jobs, automating 12 daily inventory processes
+- Architected security configurations (AWS IAM, Azure AD) with least-privilege permissions ensuring GDPR compliance across platforms
+- Optimized cloud resource usage (S3 intelligent tiering, Azure Storage lifecycle management, reserved instances), identifying monthly savings of 15% ($2K-5K per client)
+- Created infrastructure-as-code using Terraform with modular design patterns, reducing environment setup time from 2 days to 2 hours
+
