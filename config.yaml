@@ -1,0 +1,84 @@
+# Ronin Job Search Configuration
+
+#-----------------------------------------------
+# Search Settings
+#-----------------------------------------------
+search:
+  keywords:
+    - '"Data engineer"-or-"data engineers"'
+    - '"Senior data engineer"-or-"Senior data engineers"'
+    - '"Lead data engineer"-or-"Lead data engineers"'
+    - '"platform engineer"-or-"platform engineers"'
+    - '"data consultant"-or-"data consultants"'
+    - '"data architect"-or-"data architects"'
+  location: "All-Australia"
+  date_range: 2 # Days to look back
+
+  salary:
+    min: 0
+    max: 400000
+
+#-----------------------------------------------
+# Resume Selection (Seek resume IDs)
+#-----------------------------------------------
+resume:
+  # B = humble/understated (LONG_TERM jobs)
+  b_resume_id: "832e3e14-4cc6-4d12-a5e1-27f0d3a1a8cb"
+  # C = aggressive/impressive (CASH_FLOW jobs)
+  c_resume_id: "aa9db8fe-e608-4193-aef7-13cc130da44b"
+
+#-----------------------------------------------
+# Application Settings
+#-----------------------------------------------
+application:
+  salary_min: 150000
+  salary_max: 200000
+  batch_limit: 100 # Max jobs to apply to per run (0 = unlimited)
+
+#-----------------------------------------------
+# Scraping Settings
+#-----------------------------------------------
+scraping:
+  max_jobs: 0 # 0 = unlimited
+  delay_seconds: 1
+  timeout_seconds: 10
+  quick_apply_only: true
+
+#-----------------------------------------------
+# AI Analysis
+#-----------------------------------------------
+analysis:
+  min_score: 0 # 0-100, jobs below this are filtered out
+  model: gpt-4o
+
+#-----------------------------------------------
+# Proxy (optional)
+#-----------------------------------------------
+proxy:
+  enabled: false
+  http_url: ""
+  https_url: ""
+
+#-----------------------------------------------
+# Notifications (optional)
+#-----------------------------------------------
+notifications:
+  slack:
+    webhook_url: "" # Or set SLACK_WEBHOOK_URL env var
+    notify_on_error: true
+    notify_on_warning: true
+    notify_on_success: false
+
+#-----------------------------------------------
+# Timeouts & Retry
+#-----------------------------------------------
+timeouts:
+  http_request: 30
+  page_load: 45
+  element_wait: 10
+  implicit_wait: 10
+
+retry:
+  max_attempts: 3
+  backoff_multiplier: 2.0
+  jitter: true

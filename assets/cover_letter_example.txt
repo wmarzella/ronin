@@ -1,0 +1,7 @@
+﻿Hi Bluefin Team,
+
+You need someone to build Snowflake pipelines that work. I've done this at Wesfarmers and REST Super, both times inheriting messy systems and turning them into something the team could maintain.
+
+I focus on getting things working first. Happy to chat if it's relevant.
+
+William

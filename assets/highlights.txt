@@ -1,0 +1,22 @@
+William Marzella - Senior Data Engineer
+7+ years | AWS, Databricks, Snowflake, dbt, Python, Terraform
+
+Key Results:
+- $150K annual savings through AWS cost optimisation and FinOps governance
+- 60% cost reduction on Oracle-to-Snowflake migrations
+- $2M+ ARR retention via customer analytics platform (10M+ daily events)
+- Built production lakehouses processing 1B+ monthly events
+
+Recent Roles:
+- Wesfarmers OneDigital (2025): Customer loyalty data products, Snowflake/dbt/Airflow, data governance for OnePass
+- REST Industry Super (2025): $70B fund, regulatory compliance platform, 1.7M members, AWS/Snowflake lakehouse
+- Alfab (2024-25): Oracle-to-Snowflake migration, real-time Kafka pipelines, predictive maintenance
+- Tray.io (2021-23): Databricks lakehouse for Fortune 500 clients, HIPAA/PCI compliance, EKS/Kubernetes
+
+Core Skills:
+- AWS: S3, Glue, Lambda, EMR, ECS/EKS, Step Functions, CloudWatch
+- Data: Snowflake, Databricks, dbt, Airflow, Delta Lake, Kafka
+- Infrastructure: Terraform, Docker, Kubernetes, CI/CD
+- Languages: Python, SQL, PySpark
+
+Certifications: AWS Solutions Architect, AWS Data Engineer, Terraform, SnowPro Core, dbt
