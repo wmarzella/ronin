@@ -1297,6 +1297,16 @@ class ReviewScreen(Screen):
             if text:
                 (resumes_dir / filename).write_text(text, encoding="utf-8")
 
+        # -- Install schedule if enabled --
+        if schedule.get("enabled", False):
+            try:
+                from ronin.scheduler import install_schedule
+
+                interval = schedule.get("interval_hours", 2)
+                install_schedule(interval)
+            except Exception:
+                pass  # Non-fatal; user can run `ronin schedule install` later
+
         # Done
         self.app.exit(message=f"Configuration saved to {RONIN_HOME}")
 
