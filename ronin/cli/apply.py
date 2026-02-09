@@ -3,11 +3,8 @@
 
 import sys
 
-from dotenv import load_dotenv
 from loguru import logger
 from rich.console import Console
-from rich.live import Live
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     Progress,
@@ -18,25 +15,35 @@ from rich.progress import (
 from rich.table import Table
 
 from ronin.applier import SeekApplier
-from ronin.config import load_config
+from ronin.config import load_config, load_env
 from ronin.db import SQLiteManager
 
-# Configure logging to file
-logger.remove()  # Remove default stderr handler
+console = Console()
+
+# Configure logging — file gets everything, console gets INFO+ routed through Rich
+logger.remove()
 logger.add(
     "logs/apply.log",
     rotation="10 MB",
     level="DEBUG",
-    format="{time:HH:mm:ss} | {level: <7} | {message}",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
 )
-logger.add(sys.stderr, level="INFO", format="{time:HH:mm:ss} | {level: <7} | {message}")
 
-console = Console()
+
+def _rich_sink(message: str) -> None:
+    console.print(message.rstrip(), highlight=False)
+
+
+logger.add(
+    _rich_sink,
+    level="INFO",
+    format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
+)
 
 
 def main():
     """Main job application function."""
-    load_dotenv()
+    load_env()
 
     console.print("\n[bold blue]Ronin Job Applier[/bold blue]\n")
 
@@ -97,9 +104,7 @@ def main():
                         tech_stack=record.get("tech_stack", ""),
                         company_name=record.get("company_name", ""),
                         title=record.get("title", ""),
-                        job_classification=record.get(
-                            "job_classification", "CASH_FLOW"
-                        ),
+                        resume_profile=record.get("resume_profile", "default"),
                         work_type=record.get("work_type", ""),
                     )
 

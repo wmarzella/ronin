@@ -3,7 +3,6 @@
 
 import sys
 
-from dotenv import load_dotenv
 from loguru import logger
 from rich.console import Console
 from rich.progress import (
@@ -16,26 +15,36 @@ from rich.progress import (
 from rich.table import Table
 
 from ronin.analyzer import JobAnalyzerService
-from ronin.config import load_config
+from ronin.config import load_config, load_env
 from ronin.db import SQLiteManager
 from ronin.scraper import SeekScraper
 
-# Configure logging to file
+console = Console()
+
+# Configure logging — file gets everything, console gets INFO+ routed through Rich
 logger.remove()
 logger.add(
     "logs/search.log",
     rotation="10 MB",
     level="DEBUG",
-    format="{time:HH:mm:ss} | {level: <7} | {message}",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
 )
-logger.add(sys.stderr, level="INFO", format="{time:HH:mm:ss} | {level: <7} | {message}")
 
-console = Console()
+
+def _rich_sink(message: str) -> None:
+    console.print(message.rstrip(), highlight=False)
+
+
+logger.add(
+    _rich_sink,
+    level="INFO",
+    format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
+)
 
 
 def main():
     """Main job search function."""
-    load_dotenv()
+    load_env()
 
     console.print("\n[bold blue]Ronin Job Search[/bold blue]\n")
 
@@ -45,24 +54,63 @@ def main():
         console.print(f"[dim]Searching for {len(keywords)} keyword groups...[/dim]\n")
 
         scraper = SeekScraper(config)
-        analyzer = JobAnalyzerService(config)  # Uses Anthropic internally
+        analyzer = JobAnalyzerService(config)
         db_manager = SQLiteManager()
 
-        # Scrape jobs with spinner
-        with console.status("[bold green]Scraping jobs from Seek...") as status:
-            jobs = scraper.scrape_jobs()
+        # Phase 1: Scrape job previews
+        with console.status("[bold green]Scraping job listings from Seek..."):
+            previews = scraper.get_job_previews()
 
-        if not jobs:
+        if not previews:
             console.print("[yellow]No jobs found matching your criteria[/yellow]")
             return
 
-        console.print(f"[green]✓[/green] Found {len(jobs)} jobs\n")
+        console.print(f"[green]✓[/green] Found {len(previews)} matching listings\n")
 
-        # Filter duplicates
+        # Phase 2: Fetch full job details with progress bar
+        jobs = []
+        skipped_quick_apply = 0
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(
+                "[cyan]Fetching job details...", total=len(previews)
+            )
+
+            for preview in previews:
+                title = preview.get("title", "Unknown")[:35]
+                company = preview.get("company", "Unknown")[:20]
+                progress.update(task, description=f"[cyan]{title} @ {company}")
+
+                details = scraper.get_job_details(preview["job_id"])
+                if details:
+                    if scraper.quick_apply_only and not details.get(
+                        "quick_apply", False
+                    ):
+                        skipped_quick_apply += 1
+                    else:
+                        jobs.append({**preview, **details})
+
+                progress.advance(task)
+
+        if skipped_quick_apply > 0:
+            console.print(
+                f"[dim]Skipped {skipped_quick_apply} without quick apply[/dim]"
+            )
+        console.print(f"[green]✓[/green] Fetched details for {len(jobs)} jobs\n")
+
+        if not jobs:
+            console.print("[yellow]No jobs with quick apply found[/yellow]")
+            return
+
+        # Phase 3: Filter duplicates
         stats = db_manager.get_jobs_stats()
-        console.print(
-            f"[dim]Checking against {stats.get('total_jobs', 0)} existing jobs...[/dim]"
-        )
+        existing_count = stats.get("total_jobs", 0)
 
         new_jobs = []
         duplicate_count = 0
@@ -75,7 +123,10 @@ def main():
                 new_jobs.append(job)
 
         if duplicate_count > 0:
-            console.print(f"[dim]Skipped {duplicate_count} duplicates[/dim]")
+            console.print(
+                f"[dim]Skipped {duplicate_count} duplicates "
+                f"(checked against {existing_count} existing)[/dim]"
+            )
 
         if not new_jobs:
             console.print("[yellow]No new jobs to analyze[/yellow]")
@@ -83,8 +134,9 @@ def main():
 
         console.print(f"[green]✓[/green] {len(new_jobs)} new jobs to analyze\n")
 
-        # Analyze jobs with progress bar
+        # Phase 4: Analyze jobs with AI
         analyzed_jobs = []
+        failed_count = 0
 
         with Progress(
             SpinnerColumn(),
@@ -96,27 +148,35 @@ def main():
             task = progress.add_task("[cyan]Analyzing jobs...", total=len(new_jobs))
 
             for job in new_jobs:
-                title = job.get("title", "Unknown")[:40]
-                progress.update(task, description=f"[cyan]Analyzing: {title}...")
+                title = job.get("title", "Unknown")[:35]
+                company = job.get("company", "Unknown")[:20]
+                progress.update(task, description=f"[cyan]{title} @ {company}")
 
                 try:
                     analyzed_job = analyzer.analyze_job(job)
                     if analyzed_job:
                         analyzed_jobs.append(analyzed_job)
+                    else:
+                        failed_count += 1
                 except Exception:
-                    pass  # Skip failed analyses silently
+                    failed_count += 1
 
                 progress.advance(task)
+
+        if failed_count > 0:
+            console.print(f"[dim]Failed to analyze {failed_count} jobs[/dim]")
 
         if not analyzed_jobs:
             console.print("[yellow]No jobs were successfully analyzed[/yellow]")
             return
 
-        # Insert to database
+        console.print(f"[green]✓[/green] Analyzed {len(analyzed_jobs)} jobs\n")
+
+        # Phase 5: Save to database
         with console.status("[bold green]Saving to database..."):
             results = db_manager.batch_insert_jobs(analyzed_jobs)
 
-        # Show results table
+        # Results summary
         console.print()
         table = Table(title="Results", show_header=False, border_style="dim")
         table.add_column("Metric", style="dim")

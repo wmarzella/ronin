@@ -1,113 +1,51 @@
-<!-- ROLE: data_engineer -->
+EXAMPLE RESUME - "Growth / Long-Term" Profile
+================================================
 
-# William Marzella
+This is a TEMPLATE resume file. Replace this with your actual resume text
+during setup by running: ronin setup
 
-*Data Engineer | AWS • Snowflake • dbt • Python*
+This resume profile is designed for permanent/full-time roles where authenticity,
+willingness to learn, and cultural fit matter more than inflated achievements.
 
-Mont Albert North, VIC | 0413414869 | [williampmarzella@gmail.com](mailto:williampmarzella@gmail.com)
+---
 
-## Career Summary
+[YOUR NAME]
+[Your City, State/Country]
+[your.email@example.com] | [+1 000 000 0000]
 
-Data engineer with seven (7)+ years building data pipelines on AWS and Snowflake. Experienced implementing dbt transformations, lakehouse patterns (medallion architecture), and Terraform infrastructure. Background includes financial services compliance work, manufacturing analytics, and enterprise SaaS platforms. Looking for challenging work where I can grow technically and contribute to meaningful problems.
+SUMMARY
+-------
+[Write an honest summary of who you are professionally. Focus on what you're
+genuinely good at and what you enjoy doing. Be real about your experience level.]
 
-## Highlight of Capabilities
+Example: "Software engineer with 5 years of experience building web applications.
+I've learned a lot about distributed systems through trial and error. I'm strongest
+in Python and React, and I'm actively learning Rust."
 
-- AWS & Snowflake Implementation: Seven (7) years building ELT pipelines on AWS (S3, Glue, Lambda) with Snowflake as the warehouse. Comfortable with Terraform for infrastructure, dbt for transformations, and Airflow for orchestration. Have worked across financial services (APRA compliance), manufacturing, and SaaS environments.
-- dbt & Data Modeling: Built 50+ dbt models across multiple engagements using medallion architecture (Bronze/Silver/Gold). Familiar with Kimball dimensional modeling, SCD Type 2 patterns, and data quality testing. Can write clean SQL and explain transformation logic.
-- Python & Pipeline Development: Implemented Python-based data pipelines, ETL scripts, and automation tooling. Experience with PySpark on Databricks/EMR, containerized deployments on ECS, and CI/CD pipelines. Comfortable debugging and extending existing codebases.
+EXPERIENCE
+----------
+[Company Name] - [Your Actual Title]
+[Start Date] - [End Date]
+- [What you actually did, honestly described]
+- [What you learned from the role]
+- [Measurable outcomes where you have genuine data]
 
-## Education
+[Previous Company] - [Title]
+[Start Date] - [End Date]
+- [Responsibilities and achievements, described truthfully]
 
-**University of Southern California** | Los Angeles, CA
+SKILLS
+------
+Languages: [List what you actually use regularly]
+Frameworks: [List what you have real experience with]
+Cloud: [Your actual cloud experience]
+Tools: [Tools you use day-to-day]
 
-*BS, Mechanical Engineering* | 2016 -- 2020
+EDUCATION
+---------
+[Your Degree] - [University]
+[Graduation Year]
 
-- Built data acquisition system (Python, MySQL) for engineering capstone project; processed sensor data from test equipment
-- Self-taught SQL, Python, and AWS fundamentals during undergrad
-
-## Certifications
-
-- AWS Certified Solutions Architect Associate -- *Amazon Web Services* | 2023
-- AWS Data Engineer Associate -- *Amazon Web Services* | 2025
-- Terraform Certified Associate -- *HashiCorp* | 2025
-- SnowPro® Core Certification -- *Snowflake* | 2025
-- dbt Fundamentals Certification -- *dbt Labs* | 2024
-
-## Experience (Full Time)
-
-### **Wesfarmers OneDigital** | Melbourne, VIC
-
-Australian conglomerate operating loyalty programs (Bunnings, Kmart, Target, Officeworks).
-
-*Data Engineer* | September 2025 -- December 2025
-
-Designed and built data pipelines for customer loyalty analytics using Snowflake, dbt, Terraform, and Airflow.
-
-- Designed and built Flybuys refund pipeline end-to-end (S3 → SQS → Lambda → Snowflake) with dbt incremental models; owned architecture decisions and replaced manual spreadsheet process that took ~10 hours/week
-- Designed data governance framework for 270+ Snowflake columns including PII classification and access tiers; worked with compliance team to define requirements and implementation approach
-- Created testing infrastructure with mock data (~66,500 lines) so the team could run dbt tests locally without waiting for shared environments; designed the approach and built it out
-- Shipped 30 PRs across dbt, Terraform, and Airflow repositories
-
-### **REST Industry Super** | Melbourne, VIC
-
-Industry superannuation fund managing $70B+ assets for 1.7M members.
-
-*Data Engineer* | May 2025 -- December 2025
-
-Implemented dbt models and Python pipelines for financial compliance platform.
-
-- Translated existing SQL and handed-over logic into 52 dbt models following medallion architecture; models support APRA regulatory compliance tracking for member transactions
-- Implemented SCD Type 2 temporal tracking using dbt snapshots to maintain complete audit history required for financial regulations
-- Refactored monolithic Airflow DAG into separate Python modules (57 files) following existing team patterns; improved code organization and testability
-- Delivered 3 dimensional models (Kimball methodology) for member reporting covering transaction tracking, claim payments, and party relationships.
-- Merged 63 PRs over engagement; followed team's testing standards and multi-environment deployment practices
-
-### **Alfab Pty Ltd** | Melbourne, VIC
-
-Precision manufacturing enterprise, automotive/marine industries.
-
-*Data Engineer* | November 2024 -- March 2025
-
-Built Snowflake data platform and migrated legacy Oracle data. Worked with offshore development team.
-
-- Migrated 800GB from Oracle to Snowflake using AWS DMS; built dbt models in Bronze/Silver/Gold layers following team's dimensional modeling standards
-- Implemented Snowflake warehouse auto-suspend and resource monitors; helped identify unused compute through CloudWatch dashboards (cost savings were meaningful but I can't claim a specific number without the baseline methodology)
-- Built ELT pipelines using Airflow, Lambda, and ECS containers; implemented CDC patterns for manufacturing data
-- Set up observability with CloudWatch and Grafana; created alerting for pipeline failures and data quality issues
-- Contributed to Terraform modules for ECS deployment; followed existing patterns for IAM and CI/CD
-
-### **Tray.io** | San Diego, CA
-
-Enterprise iPaaS platform, healthcare/fintech compliance.
-
-*Platform Engineer* | April 2021 -- October 2023
-
-Maintained Databricks pipelines and supported platform operations for customer analytics.
-
-- Maintained PySpark pipelines on Databricks; fixed bugs, handled schema changes, and supported analytics team requests
-- Supported pipeline processing 10M+ daily events; investigated failures, updated data quality checks, and handled ad-hoc requests
-- Helped document Unity Catalog lineage and access controls for compliance requirements
-- Maintained monitoring dashboards (Prometheus, Grafana) and responded to alerts for pipeline issues
-
-### **Chilton's Artisan Foods** | Melbourne, VIC
-
-Specialty food manufacturer, premium bakery products.
-
-*Data Engineer (First Data Hire)* | July 2019 -- April 2021
-
-Built company's first data platform. Migrated from spreadsheets and on-premise systems to AWS and Snowflake.
-
-- Built initial AWS infrastructure (S3, Glue, Lambda) and Snowflake warehouse; first data engineering hire, learned a lot figuring out what the company actually needed
-- Designed ELT pipelines to replace manual data entry; automated inventory and sales reporting that previously required exporting to Excel
-- Built Tableau dashboards for inventory and production reporting; reduced time from data to decision from days to hours
-- Implemented basic monitoring and alerting for pipeline failures; set up Snowflake auto-suspend to manage costs
-
-## Experience (Freelance)
-
-### **Stygian Consulting (Contracting Vehicle)** | Melbourne, VIC
-
-ABN for contract work
-
-*Contractor* | June 2022 -- Present
-
-Contracting vehicle for data engineering work. Available for contract engagements.
+---
+TIP: The "growth" resume should sound like a real person wrote it.
+Avoid inflated metrics you can't back up in an interview.

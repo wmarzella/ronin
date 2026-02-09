@@ -1,12 +1,13 @@
 """Chrome WebDriver manager for browser automation tasks."""
 
-import fcntl
 import glob
 import json
 import os
+import platform
 import shutil
 import time
 import uuid
+from pathlib import Path
 
 from loguru import logger
 from selenium import webdriver
@@ -19,11 +20,66 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-# Chrome binary locations to check (immutable)
-CHROME_BINARY_LOCATIONS = (
-    "/Users/marzella/chrome/mac_arm-134.0.6998.88/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-    "~/chrome/mac_arm-134.0.6998.88/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-)
+try:
+    from filelock import FileLock
+except ImportError:
+    # No-op fallback when filelock is not installed
+    class FileLock:
+        """No-op file lock for platforms without filelock."""
+
+        def __init__(self, lock_file, timeout=-1):
+            self._lock_file = lock_file
+
+        def acquire(self, timeout=None):
+            pass
+
+        def release(self):
+            pass
+
+        def __enter__(self):
+            self.acquire()
+            return self
+
+        def __exit__(self, *args):
+            self.release()
+
+
+def _get_chrome_binary_candidates() -> list[str]:
+    """Return platform-specific Chrome binary search paths."""
+    system = platform.system()
+    home = str(Path.home())
+    candidates = []
+
+    if system == "Darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+        # Scan ~/chrome/ for Chrome for Testing bundles
+        chrome_testing_base = Path(home) / "chrome"
+        if chrome_testing_base.is_dir():
+            for app_bundle in sorted(
+                chrome_testing_base.rglob("Google Chrome for Testing.app"), reverse=True
+            ):
+                candidates.append(
+                    str(app_bundle / "Contents" / "MacOS" / "Google Chrome for Testing")
+                )
+    elif system == "Windows":
+        prog = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        prog_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        candidates = [
+            os.path.join(prog, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(prog_x86, "Google", "Chrome", "Application", "chrome.exe"),
+        ]
+    elif system == "Linux":
+        candidates = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+        ]
+
+    return candidates
+
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 
@@ -36,24 +92,46 @@ class ChromeDriver:
         self.driver = None
         self.is_logged_in = False
         self.user_data_dir = None
-        self.login_state_file = os.path.expanduser(
-            "~/chrome_automation_profile/login_state.json"
-        )
+        self._profile_lock = None
+        ronin_dir = Path.home() / ".ronin"
+        ronin_dir.mkdir(parents=True, exist_ok=True)
+        self.login_state_file = str(ronin_dir / "login_state.json")
 
     def _find_chrome_binary(self) -> str:
-        """Find Chrome binary location."""
+        """Find Chrome binary location.
+
+        Search order:
+        1. CHROME_BINARY_PATH environment variable
+        2. browser.chrome_path from config.yaml
+        3. Platform-specific default locations
+        """
+        # 1. Environment variable
         chrome_env_path = os.environ.get("CHROME_BINARY_PATH")
         if chrome_env_path and os.path.exists(chrome_env_path):
             logger.info(f"Using Chrome from environment: {chrome_env_path}")
             return chrome_env_path
 
-        for location in CHROME_BINARY_LOCATIONS:
-            expanded = os.path.expanduser(location)
-            if os.path.exists(expanded):
-                logger.info(f"Found Chrome at: {expanded}")
-                return expanded
+        # 2. Config file
+        try:
+            from ronin.config import load_config
 
-        logger.warning("Chrome binary not found. Set CHROME_BINARY_PATH env var")
+            config = load_config()
+            config_path = config.get("browser", {}).get("chrome_path", "")
+            if config_path and os.path.exists(config_path):
+                logger.info(f"Using Chrome from config: {config_path}")
+                return config_path
+        except Exception:
+            pass
+
+        # 3. Platform-specific candidates
+        for location in _get_chrome_binary_candidates():
+            if os.path.exists(location):
+                logger.info(f"Found Chrome at: {location}")
+                return location
+
+        logger.warning(
+            "Chrome binary not found. Set CHROME_BINARY_PATH env var or browser.chrome_path in config.yaml"
+        )
         return None
 
     def _configure_chrome_options(
@@ -102,37 +180,37 @@ class ChromeDriver:
         return options
 
     def _setup_profile_directory(self) -> str:
-        """Set up Chrome profile directory with locking."""
-        base_profile_dir = os.path.expanduser("~/chrome_automation_profile")
-        lock_file_path = os.path.expanduser("~/chrome_automation_profile.lock")
-        self.lock_file = None
+        """Set up Chrome profile directory with cross-platform file locking."""
+        ronin_dir = Path.home() / ".ronin"
+        base_profile_dir = ronin_dir / "chrome_profile"
+        lock_file_path = str(ronin_dir / "chrome_profile.lock")
 
         try:
-            self.lock_file = open(lock_file_path, "w")
-            fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._profile_lock = FileLock(lock_file_path, timeout=0)
+            self._profile_lock.acquire()
 
             # Got the lock, use shared profile
-            self.user_data_dir = base_profile_dir
-            if not os.path.exists(self.user_data_dir):
-                os.makedirs(self.user_data_dir)
+            self.user_data_dir = str(base_profile_dir)
+            base_profile_dir.mkdir(parents=True, exist_ok=True)
             logger.info("Using shared Chrome profile for login persistence")
-        except (IOError, OSError):
-            # Lock failed, use unique session directory
+        except Exception:
+            # Lock failed (Timeout or other), use unique session directory
             session_id = str(uuid.uuid4())[:8]
-            self.user_data_dir = os.path.expanduser(
-                f"~/chrome_automation_profile_{session_id}"
-            )
-            if not os.path.exists(self.user_data_dir):
-                os.makedirs(self.user_data_dir)
+            session_dir = ronin_dir / f"chrome_profile_{session_id}"
+            self.user_data_dir = str(session_dir)
+            session_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Using session-specific profile: {session_id}")
 
-            if self.lock_file:
-                self.lock_file.close()
-                self.lock_file = None
+            if self._profile_lock:
+                try:
+                    self._profile_lock.release()
+                except Exception:
+                    pass
+                self._profile_lock = None
 
         # Clear cache to prevent blank page issues
-        cache_dir = os.path.join(self.user_data_dir, "Default", "Cache")
-        if os.path.exists(cache_dir):
+        cache_dir = Path(self.user_data_dir) / "Default" / "Cache"
+        if cache_dir.exists():
             try:
                 shutil.rmtree(cache_dir)
                 logger.debug("Cleared Chrome cache")
@@ -450,8 +528,9 @@ class ChromeDriver:
             self.driver = None
             self.is_logged_in = False
 
-        # Clean up all chrome automation profiles
-        profile_pattern = os.path.expanduser("~/chrome_automation_profile_*")
+        # Clean up all chrome session profiles under ~/.ronin/
+        ronin_dir = Path.home() / ".ronin"
+        profile_pattern = str(ronin_dir / "chrome_profile_*")
         for profile_dir in glob.glob(profile_pattern):
             if os.path.exists(profile_dir):
                 try:
@@ -476,18 +555,17 @@ class ChromeDriver:
             self.driver = None
 
         # Release the profile lock if we have one
-        if hasattr(self, "lock_file") and self.lock_file:
+        if self._profile_lock:
             try:
-                fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
-                self.lock_file.close()
-                self.lock_file = None
+                self._profile_lock.release()
+                self._profile_lock = None
             except Exception:
                 pass
 
         # Only delete profile if explicitly requested (for troubleshooting)
         if not preserve_session and self.user_data_dir:
             # Only delete session-specific profiles, never the shared one
-            base_profile = os.path.expanduser("~/chrome_automation_profile")
+            base_profile = str(Path.home() / ".ronin" / "chrome_profile")
             if self.user_data_dir != base_profile and os.path.exists(
                 self.user_data_dir
             ):

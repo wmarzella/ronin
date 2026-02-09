@@ -10,6 +10,13 @@ from loguru import logger
 from ronin.ai import AIService
 from ronin.prompts import FORM_FIELD_SYSTEM_PROMPT
 
+try:
+    from ronin.profile import load_profile
+    from ronin.prompts.generator import generate_form_field_prompt
+except ImportError:
+    load_profile = None  # type: ignore[assignment,misc]
+    generate_form_field_prompt = None  # type: ignore[assignment,misc]
+
 
 class AIResponseHandler:
     """Handles AI response generation and processing for form elements."""
@@ -29,6 +36,14 @@ class AIResponseHandler:
             self.config = load_config()
         else:
             self.config = config
+
+        self.profile = None
+        if load_profile is not None:
+            try:
+                self.profile = load_profile()
+                logger.debug("Loaded user profile for form field responses")
+            except Exception as e:
+                logger.debug(f"Profile not available, using legacy prompts: {e}")
 
         # Pre-cache system prompt since it doesn't change per-request
         self._system_prompt = self._build_system_prompt()
@@ -84,7 +99,10 @@ class AIResponseHandler:
         """Build the system prompt for AI responses."""
         keywords = self.config["search"]["keywords"]
 
-        # Get salary expectations from config, with fallback
+        if self.profile is not None and generate_form_field_prompt is not None:
+            return generate_form_field_prompt(self.profile, keywords)
+
+        # Legacy fallback
         salary_config = self.config.get("application", {})
         salary_min = salary_config.get("salary_min", 150000)
         salary_max = salary_config.get("salary_max", 200000)
@@ -209,7 +227,17 @@ class AIResponseHandler:
         if tech_stack in self._resume_cache:
             return self._resume_cache[tech_stack]
 
-        # Determine base path relative to this file
+        # Profile-based lookup
+        if self.profile is not None:
+            try:
+                text = self.profile.get_resume_text(tech_stack)
+                self._resume_cache[tech_stack] = text
+                logger.debug(f"Loaded resume from profile: {tech_stack}")
+                return text
+            except (KeyError, FileNotFoundError) as e:
+                logger.debug(f"Profile resume lookup failed, using legacy path: {e}")
+
+        # Legacy hardcoded path
         base_path = Path(__file__).parent.parent.parent / "assets" / "cv"
 
         # Try exact match first

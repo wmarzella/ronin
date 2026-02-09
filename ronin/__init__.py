@@ -1,23 +1,46 @@
 """Ronin - Job Search Automation."""
 
-import sys
+from pathlib import Path
 
 from loguru import logger
+from rich.console import Console
 
 from ronin.config import load_config
 
-# Configure loguru for cleaner output
-# Remove default handler and add one that only shows warnings and above
+_console = Console(stderr=True)
+
+# Configure loguru — route console output through Rich, file gets everything
 logger.remove()
+
+
+def _rich_sink(message: str) -> None:
+    _console.print(message.rstrip(), highlight=False)
+
+
+def _get_log_dir() -> Path:
+    """Resolve the log directory, preferring RONIN_HOME.
+
+    Returns:
+        Path to the logs directory (created if needed).
+    """
+    try:
+        from ronin.config import get_ronin_home
+
+        log_dir = get_ronin_home() / "logs"
+    except Exception:
+        log_dir = Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
 logger.add(
-    sys.stderr,
+    _rich_sink,
     level="WARNING",
     format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
 )
 
-# Add file logging for debug info
 logger.add(
-    "logs/ronin.log",
+    str(_get_log_dir() / "ronin.log"),
     rotation="10 MB",
     retention="7 days",
     level="DEBUG",

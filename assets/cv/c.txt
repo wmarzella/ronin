@@ -1,124 +1,53 @@
-<!-- ROLE: data_engineer -->
+EXAMPLE RESUME - "Contract / Aggressive" Profile
+==================================================
 
-# William Marzella
+This is a TEMPLATE resume file. Replace this with your actual resume text
+during setup by running: ronin setup
 
-*Senior Data Engineer | AWS • Databricks • Snowflake • dbt • Python • SQL • Terraform*
+This resume profile is designed for contract/consulting roles where impressive
+credentials, demonstrated results, and enterprise-scale experience matter most.
 
-Mont Albert North, VIC | 0413414869 | [williampmarzella@gmail.com](mailto:williampmarzella@gmail.com)
+---
 
-## Career Summary
+[YOUR NAME]
+[Your City, State/Country]
+[your.email@example.com] | [+1 000 000 0000]
 
-Specialist in modern data-platform architecture, cost optimization, and high-leverage contract delivery. seven (7)+ years designing Amazon Web Services (AWS) lakehouse architectures with Databricks Delta Lake, Snowflake warehousing, and Terraform Infrastructure as Code (IaC). Proven results: $150K+ annual infrastructure savings, 60% cost reductions through FinOps governance, and $2M+ ARR retention via platform modernization. Expert in legacy-to-lakehouse migrations (medallion architecture), Unity Catalog governance, and enterprise cost observability. Proficient in Python, SQL, and DataOps practices.
+SUMMARY
+-------
+[Write a confident, results-oriented summary. Lead with impact and outcomes.
+Use strong action verbs and quantify everything you can.]
 
-## Highlight of Capabilities
+Example: "Senior Software Engineer specialising in distributed systems and cloud
+infrastructure. Led migration of legacy monolith to microservices architecture,
+reducing deployment time by 80% and saving $200K annually in infrastructure costs."
 
-- AWS-First Architecture: Seven (7) years designing serverless Extract/Load/Transform (ELT) architectures (S3, Glue, Lambda, Step Functions) and lakehouse platforms on EMR. Led hybrid-to-AWS migrations defining landing zones, IAM policies, and CI/CD patterns. Built cost observability integrating CloudWatch + Cost Explorer—identified idle compute reducing monthly spend $60K+. Delivered $150K annual savings through FinOps governance, auto-scaling policies, and Terraform Infrastructure as Code (IaC).
-- Databricks & Snowflake Modernization: Nine (9) years re-engineering legacy ETL to lakehouse architecture (Bronze/Silver/Gold medallion pattern) with Delta Lake. Led Oracle-to-Snowflake transformation achieving 60% cost reduction and 75% query improvement with dbt Cloud and Python. Implemented Unity Catalog governance for multi-workspace environments—centralized lineage and audit compliance. Delivered $2M+ ARR retention through customer analytics platform processing 10M+ daily events.
-- Cost Optimization & Governance: Seven (7) years implementing FinOps practices, DataOps workflows, tagging strategies, and resource governance frameworks. Built Snowflake warehouse auto-suspend logic and query profiling—25% credit consumption reduction. Standardized data governance (naming conventions, access tiers, retention policies, PII classification) adopted across enterprise analytics teams. Expert in compliance frameworks (HIPAA, PCI DSS) with comprehensive audit trails and SQL-based data quality testing.
+EXPERIENCE
+----------
+[Company Name] - [Elevated Title That Reflects Your Impact]
+[Start Date] - [End Date]
+- Led [project] resulting in [$X savings / Y% improvement]
+- Architected [system] serving [N users / processing N events per second]
+- Drove adoption of [technology] across [N teams / entire organisation]
 
-## Education
+[Previous Company] - [Title]
+[Start Date] - [End Date]
+- Delivered [project] under budget, [X weeks] ahead of schedule
+- Reduced [metric] by [X%] through [specific technical approach]
+- Managed [N] direct reports / mentored [N] engineers
 
-**University of Southern California** | Los Angeles, CA
+SKILLS
+------
+Languages: [List all languages you can work in, including ones you're learning]
+Frameworks: [Cast a wider net - include adjacent technologies]
+Cloud: [All platforms you've touched]
+Tools: [Comprehensive tooling list]
 
-*BS, Mechanical Engineering* | 2016 -- 2020
+CERTIFICATIONS
+--------------
+[Any relevant certifications]
 
-- Designed AWS-native data acquisition system (EC2, Docker, Python) processing 1000+ sensor readings/minute; implemented cost-optimized infrastructure with auto-scaling compute
-- Built MySQL databases on AWS RDS with automated Python ETL and Lambda functions; enabled real-time equipment monitoring and predictive maintenance analytics
-- Created serverless analysis workflows (Lambda, S3, Step Functions) reducing processing time 65%; demonstrated early AWS-first architecture and cost optimization practices
-
-## Certifications
-
-- AWS Certified Solutions Architect Associate -- *Amazon Web Services* | 2023
-- AWS Data Engineer Associate -- *Amazon Web Services* | 2025
-- Terraform Certified Associate -- *HashiCorp* | 2025
-- SnowPro® Core Certification -- *Snowflake* | 2025
-- dbt Fundamentals Certification -- *dbt Labs* | 2024
-
-## Experience (Full Time)
-
-### **Wesfarmers OneDigital** | Melbourne, VIC
-
-Leading Australian conglomerate operating loyalty programs (Bunnings, Kmart, Target, Officeworks) processing millions of customer transactions.
-
-*Data Engineer* | September 2025 -- December 2025
-
-Designed AWS-first data products for customer loyalty analytics (OnePass) using Snowflake, dbt, Terraform, and Airflow. Owned data governance standardization and cost-optimized architecture for enterprise-scale transaction processing.
-
-- Designed end-to-end Flybuys refund pipeline on AWS (S3 + SQS + Lambda) with Snowflake incremental models and dbt medallion layers; automated 10+ hours weekly manual work processing 1000s daily transactions with zero incidents
-- Standardized data governance framework across 270+ Snowflake columns implementing PII classification, access tiers, retention policies, and audit trails; enabled regulatory compliance and identity resolution for customer service
-- Eliminated deployment bottleneck reducing team wait times 2-4h to zero; built self-service testing infrastructure (66,500+ lines mock data) with Terraform CI/CD and dbt snapshot optimization enabling team autonomy
-- Architected cost-optimized AWS infrastructure with S3 lifecycle policies, Lambda event-driven compute, and SQS queuing; reduced data export costs while maintaining enterprise reliability and compliance requirements
-- Delivered 30 production PRs across 4 repositories (dbt, Terraform, Airflow, observability) with 100% test coverage; integrated Datadog monitoring for pipeline observability and cost tracking
-
-### **REST Industry Super** | Melbourne, VIC
-
-Industry superannuation fund managing $70B+ assets for 1.7M members.
-
-*Data Engineer* | May 2025 -- December 2025
-
-Designed Amazon Web Services (AWS) data platform for financial compliance and member analytics. Owned regulatory governance frameworks, audit trail implementation, and cost-optimized infrastructure for $70B+ enterprise serving 1.7M members.
-
-- Built production lakehouse platform with 30+ Snowflake tables and 52 dbt models (medallion architecture) enabling regulatory compliance tracking, complete audit trails, and member analytics for 1.7M members with zero incidents
-- Implemented comprehensive data governance with SCD Type 2 temporal tracking, custom dbt materializations, data lineage documentation, and audit framework ensuring complete transaction history for APRA financial regulations
-- Re-architected monolithic Airflow into modular Python microservices (6,077 lines across 57 files) deployed on Amazon ECS (Kubernetes); enabled cost-optimized container orchestration with auto-scaling and improved maintainability
-- Delivered 62 analytics measures and 3 dimensional models (Kimball methodology) for member reporting covering transaction tracking, claim payments, and party relationships with centralized lineage and audit compliance using SQL and Python
-- Achieved 63 merged PRs across 3 repositories through enterprise DataOps practices, comprehensive Python/SQL testing, multi-environment strategy on AWS, and Git-based change management with zero production incidents
-
-### **Alfab Pty Ltd** | Melbourne, VIC
-
-Precision manufacturing enterprise, $10M revenue, automotive/marine industries.
-
-*Senior Data Engineer* | November 2024 -- March 2025
-
-Led Amazon Web Services (AWS) platform modernization and Oracle-to-Snowflake lakehouse migration. Owned FinOps governance, cost observability, and architectural decisions for cloud-native manufacturing data platform. Technical leadership for offshore development team.
-
-- Delivered $150K annual savings (35% reduction) through AWS cost observability integrating CloudWatch + Cost Explorer; identified idle compute, implemented Snowflake auto-suspend, and standardized tagging strategy across 800GB manufacturing workloads
-- Re-engineered legacy Oracle to Snowflake lakehouse (Bronze/Silver/Gold) with dbt, Python, SQL, and dimensional modeling (Kimball); achieved 60% maintenance cost reduction and 75% query improvement via AWS DMS migration and CDC pipelines
-- Designed AWS-native real-time platform (MSK Kafka + ECS + Lambda + Airflow) with exactly-once processing; reduced production downtime 22% through predictive maintenance analytics and event-driven architecture
-- Architected containerized platform on Amazon ECS with Terraform Infrastructure as Code (IaC), auto-scaling policies, and cost-optimized compute strategies; defined IAM policies and CI/CD patterns standardizing multi-environment deployments
-- Built production observability (CloudWatch, Prometheus, Grafana) monitoring 15 KPIs with cost anomaly detection; reduced incident response from 4h to 45min through intelligent alerting and runbook automation
-- Implemented ML quality pipeline on EMR (Apache Spark/PySpark) with dbt transformations in Snowflake; achieved 18% defect reduction through predictive analytics and automated quality control
-
-### **Tray.io** | San Diego, CA
-
-Enterprise iPaaS serving 200+ Fortune 500 companies, 1B+ monthly events, healthcare/fintech focus.
-
-*Platform Engineer* | April 2021 -- October 2023
-
-Designed Databricks lakehouse architecture for Fortune 500 customer analytics. Owned platform modernization processing 1B+ monthly events with healthcare/fintech compliance (HIPAA, PCI DSS). Led cost optimization and governance for distributed compute workloads.
-
-- Re-engineered legacy analytics to Databricks Lakehouse (Bronze/Silver/Gold) with Delta Live Tables and dbt; preserved $2M+ ARR through customer journey insights, GenAI-powered chatbot analytics, and improved schema traceability for Fortune 500 clients
-- Processed 10M+ daily events achieving 99.8% completeness via Databricks/EMR PySpark with Delta Lake ACID transactions; implemented cost-effective auto-scaling reducing compute spend 30% through cluster right-sizing and spot instances
-- Implemented Unity Catalog governance across multi-workspace Databricks environment; centralized lineage, audit compliance, and access control ensuring 95%+ accuracy across 8 heterogeneous sources with AWS Glue integration
-- Architected Lambda platform (Spark Structured Streaming + Databricks + Airflow) with exactly-once processing; reduced support tickets 35% through automated failure recovery and event-driven compute orchestration
-- Deployed production Amazon EKS (Kubernetes) clusters with Terraform Infrastructure as Code (IaC) for containerized Apache Spark applications; defined IAM policies and CI/CD patterns enabling consistent deployment across healthcare/fintech compliance environments
-- Built AWS-native observability (CloudWatch, Prometheus, Grafana, ELK) with cost monitoring and performance metrics; reduced incident resolution from 30 to 15 minutes through intelligent alerting for distributed Databricks workloads
-
-### **Chilton's Artisan Foods** | Melbourne, VIC
-
-Specialty food manufacturer, $10M revenue, premium artisanal bakery products.
-
-*Data Engineer* | July 2019 -- April 2021
-
-First data hire—designed and deployed AWS-first cloud migration from on-premise infrastructure. Owned complete Snowflake platform build with cost-optimized AWS architecture for $10M manufacturing operation.
-
-- Led migration from on-premise to AWS-first architecture (S3 + Glue + Lambda + Snowflake) with cost-optimized storage (Intelligent-Tiering); saved 25 hours weekly and enabled real-time visibility for $2M monthly inventory
-- Designed serverless ELT pipelines with dbt transformation workflows and AWS-native orchestration; reduced manual entry 80% through automated data quality frameworks and real-time inventory tracking
-- Built cost observability with CloudWatch monitoring and Snowflake auto-suspend logic; prevented $50K monthly inventory waste through automated anomaly detection and Lambda-triggered alerts
-- Reduced reporting from 3 days to 4 hours (18x improvement) using Tableau dashboards, dbt semantic layer, and Airflow scheduling; implemented cost-optimized compute for scheduled report distribution
-
-## Experience (Freelance)
-
-### **Stygian Consulting** | Melbourne, VIC
-
-Independent consultancy delivering AWS-first platform modernization and FinOps optimization (Part-time)
-
-*Founder & Data Platform Consultant* | June 2022 -- Present
-
-AWS-first architecture consulting for e-commerce/retail clients ($5M-50M revenue). Specialized in legacy-to-lakehouse migrations, cost governance frameworks, and Snowflake platform builds. Contract delivery for cloud infrastructure optimization and data platform transformation.
-
-- Designed serverless ELT architecture on AWS (S3 + Glue + Lambda + Step Functions) cutting batch latency from 6h to 45min; implemented FinOps monitoring via CloudWatch + Cost Explorer delivering $2K-5K monthly savings per engagement
-- Re-engineered SQL Server to Snowflake lakehouse (Bronze/Silver/Gold medallion) with dbt and dimensional modeling; achieved 60% infrastructure cost reduction and 6x report performance improvement (30min to 5min)
-- Built AWS-native MLOps platform (ECS, SageMaker, Lambda, Snowflake Python UDFs) for demand forecasting; improved inventory accuracy 25% through serverless inference architecture with cost-optimized compute
-- Implemented Snowflake warehouse auto-suspend logic and query profiling reducing credit consumption 25%; built cost dashboards and tagging strategy adopted across client analytics teams
-- Architected production Airflow on ECS with Terraform automation, S3 Intelligent-Tiering, and observability stack (Prometheus, Grafana, CloudWatch); enabled fully automated pipelines with auto-scaling compute governance
+---
+TIP: The "aggressive" resume should emphasise impact, scale, and authority.
+Frame your experience in terms of business outcomes and cost savings.
+Appropriate for contract roles where you need to demonstrate immediate value.

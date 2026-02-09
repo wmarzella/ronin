@@ -1,171 +1,596 @@
-# 🐒 Ronin - AI-Powered Job Automation Platform
+# Ronin - AI-Powered Job Application Automation
 
-> **Monkey-Friendly Structure** - Even a monkey can understand this codebase!
+Ronin automatically searches job boards, scores every listing using AI, picks
+the right resume for each role, writes a tailored cover letter, and submits
+applications -- all while you do something better with your time.
 
-## 📁 Repository Structure
-
-```
-ronin/
-├── src/ronin/                    # 🎯 Main source code
-│   ├── core/                     # ⚙️ Core functionality
-│   │   ├── config.py            # Configuration management
-│   │   ├── logging.py           # Logging setup
-│   │   └── config.yaml          # Configuration file
-│   │
-│   ├── apps/                     # 🚀 Application modules
-│   │   ├── job_automation/      # 💼 Job automation suite
-│   │   │   ├── search/          # 🔍 Job search & scraping
-│   │   │   ├── application/     # 📝 Job application automation
-│   │   │   └── outreach/        # 🤝 Networking & outreach
-│   │   │
-│   │   ├── blog_generation/     # ✍️ Blog content automation
-│   │   └── book_scraping/       # 📚 Book content extraction
-│   │
-│   ├── services/                 # 🔌 External service integrations
-│   │   ├── ai_service.py        # 🤖 AI/LLM services
-│   │   ├── airtable_service.py  # 📊 Airtable integration
-│   │   ├── github_service.py    # 🐙 GitHub integration
-│   │   └── ...                  # Other services
-│   │
-│   ├── models/                   # 📋 Data models & schemas
-│   │   ├── job.py               # Job data model
-│   │   ├── blog_post.py         # Blog post model
-│   │   └── ...
-│   │
-│   └── utils/                    # 🛠️ Utility functions
-│       ├── formatters.py         # Data formatting
-│       └── validators.py         # Data validation
-│
-├── dags/                         # 🌪️ Airflow DAGs
-├── scripts/                      # 📜 Automation scripts
-├── assets/                       # 📁 Static assets (CVs, templates)
-├── data/                         # 💾 Data storage
-├── logs/                         # 📝 Log files
-└── tests/                        # 🧪 Test files
-```
-
-## 🎯 **What Each Section Does**
-
-### 🏗️ **Core** (`src/ronin/core/`)
-
-- **Purpose**: Foundation of the entire system
-- **Contains**: Configuration, logging, base functionality
-- **Monkey Translation**: "The brain and nervous system"
-
-### 🚀 **Apps** (`src/ronin/apps/`)
-
-- **Purpose**: Main business logic and features
-- **Contains**: Job automation, blog generation, book scraping
-- **Monkey Translation**: "The different things the monkey can do"
-
-#### 💼 **Job Automation** (`apps/job_automation/`)
-
-- **Search**: Find jobs on various platforms
-- **Application**: Automatically apply to jobs
-- **Outreach**: Network and reach out to people
-
-#### ✍️ **Blog Generation** (`apps/blog_generation/`)
-
-- **Purpose**: Create blog content automatically
-- **Monkey Translation**: "The monkey writes articles"
-
-#### 📚 **Book Scraping** (`apps/book_scraping/`)
-
-- **Purpose**: Extract content from books
-- **Monkey Translation**: "The monkey reads books and takes notes"
-
-### 🔌 **Services** (`src/ronin/services/`)
-
-- **Purpose**: Connect to external APIs and services
-- **Contains**: AI services, databases, social platforms
-- **Monkey Translation**: "The monkey's tools and connections"
-
-### 📋 **Models** (`src/ronin/models/`)
-
-- **Purpose**: Define data structures
-- **Contains**: Job, blog post, book models
-- **Monkey Translation**: "The monkey's filing system"
-
-### 🛠️ **Utils** (`src/ronin/utils/`)
-
-- **Purpose**: Helper functions used everywhere
-- **Contains**: Formatters, validators, common functions
-- **Monkey Translation**: "The monkey's toolbox"
-
-## 🚀 **How to Use**
-
-### 1. **Job Automation**
-
-```python
-from ronin.apps.job_automation.search import JobSearcher
-from ronin.apps.job_automation.application import JobApplier
-from ronin.apps.job_automation.outreach import Networker
-
-# Search for jobs
-searcher = JobSearcher()
-jobs = searcher.find_jobs("Python Developer")
-
-# Apply to jobs
-applier = JobApplier()
-applier.apply_to_jobs(jobs)
-
-# Network with people
-networker = Networker()
-networker.connect_with_recruiters()
-```
-
-### 2. **Blog Generation**
-
-```python
-from ronin.apps.blog_generation import BlogGenerator
-
-generator = BlogGenerator()
-post = generator.create_post("AI in Job Search")
-generator.publish_post(post)
-```
-
-### 3. **Book Scraping**
-
-```python
-from ronin.apps.book_scraping import BookScraper
-
-scraper = BookScraper()
-content = scraper.extract_from_url("https://example.com/book")
-```
-
-## 🎨 **Design Principles**
-
-1. **🐒 Monkey-Friendly**: Clear, obvious structure
-2. **🔧 Single Responsibility**: Each module does one thing well
-3. **📦 Modular**: Easy to add/remove features
-4. **🔗 Loose Coupling**: Modules don't depend heavily on each other
-5. **📖 Self-Documenting**: Code structure tells the story
-
-## 🛠️ **Development**
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run formatting
-black src/
-isort src/
-
-# Run tests
-pytest tests/
-
-# Run specific app
-python -m ronin.apps.job_automation.search
-```
-
-## 📈 **Benefits of This Structure**
-
-- ✅ **Easy to Navigate**: Find what you need quickly
-- ✅ **Easy to Extend**: Add new apps without breaking existing code
-- ✅ **Easy to Test**: Each module can be tested independently
-- ✅ **Easy to Deploy**: Deploy specific apps separately
-- ✅ **Easy to Understand**: Even new developers (or monkeys) can contribute
+Set it up once. Run one command. Wake up to a full pipeline of applications.
 
 ---
 
-**Remember**: If a monkey can understand it, so can you! 🐒✨
+## How It Works
+
+```
+  Keywords           Seek.com.au           AI Analysis          Your Resumes
+     |                   |                     |                     |
+     v                   v                     v                     v
+ +---------+      +------------+      +-----------------+    +--------------+
+ | Config  | ---> |   Scrape   | ---> |  Score & Rank   | -> | Pick Resume  |
+ | (YAML)  |      |  Listings  |      |  (0-100 score)  |    | + Cover Ltr  |
+ +---------+      +------------+      +-----------------+    +--------------+
+                                              |                     |
+                                              v                     v
+                                      +-----------------+    +--------------+
+                                      |  Store in DB    | -> | Auto-Apply   |
+                                      |  (SQLite)       |    | via Chrome   |
+                                      +-----------------+    +--------------+
+```
+
+1. **Search** -- Ronin scrapes Seek.com.au for jobs matching your keywords.
+2. **Score** -- Each job description is sent to an AI model (Claude or GPT)
+   which scores it 0-100 based on your skills, preferences, and red flags.
+3. **Select** -- The AI picks the best resume profile for each job and
+   classifies it (contract vs. long-term).
+4. **Apply** -- Ronin opens Chrome, navigates to each job, writes a cover
+   letter, answers screening questions, and submits the application.
+
+---
+
+## Quick Start
+
+```
+git clone https://github.com/automationchad/ronin.git
+cd ronin
+pip install .
+ronin setup
+ronin search
+```
+
+When you are ready to start applying:
+
+```
+ronin apply
+```
+
+The rest of this document walks through every step in detail.
+
+---
+
+## Prerequisites
+
+Before you begin, you need four things:
+
+### 1. Python 3.11 or newer
+
+Ronin requires Python version 3.11 or above.
+
+**macOS:** Open Terminal (press Cmd+Space, type "Terminal", press Enter) and run:
+
+```
+python3 --version
+```
+
+If it says `Python 3.11` or higher, you are good. If not, download the latest
+version from https://www.python.org/downloads/macos/ -- click the big yellow
+button, open the downloaded file, and follow the installer prompts.
+
+**Windows:** Open Command Prompt (press the Windows key, type "cmd", press
+Enter) and run:
+
+```
+python --version
+```
+
+If it says `Python 3.11` or higher, you are good. If not, download the latest
+version from https://www.python.org/downloads/windows/ -- click the big yellow
+button, run the installer, and **check the box that says "Add Python to PATH"**
+before clicking Install.
+
+### 2. Google Chrome
+
+Ronin uses Chrome to submit applications. Download it from
+https://www.google.com/chrome/ if you do not already have it.
+
+### 3. A Seek.com.au account
+
+You need an active Seek account with at least one resume uploaded. Ronin logs
+in to Seek through Google SSO (Sign in with Google), so your Seek account must
+be linked to a Google account.
+
+To upload resumes on Seek: log in at https://www.seek.com.au, go to
+Profile > Resumes, and upload your resume files there.
+
+### 4. At least one AI API key
+
+Ronin uses AI to score jobs, write cover letters, and answer screening
+questions. You need an API key from at least one of these providers:
+
+**Anthropic (Claude) -- recommended:**
+- Go to https://console.anthropic.com/
+- Create an account and add a payment method
+- Go to API Keys and create a new key
+- Copy the key (it starts with `sk-ant-`)
+
+**OpenAI (GPT):**
+- Go to https://platform.openai.com/
+- Create an account and add a payment method
+- Go to API Keys and create a new key
+- Copy the key (it starts with `sk-`)
+
+**What these cost:** Typical usage runs about $5-20 per month depending on how
+many jobs you search and apply to. Each job analysis costs a fraction of a cent.
+Cover letters cost slightly more. You only pay for what you use.
+
+---
+
+## Installation
+
+### macOS
+
+Open Terminal (press Cmd+Space, type "Terminal", press Enter) and run each
+line one at a time:
+
+```
+# 1. Download the code
+git clone https://github.com/automationchad/ronin.git
+cd ronin
+
+# 2. Create a virtual environment (keeps Ronin's packages separate)
+python3 -m venv venv
+
+# 3. Activate the virtual environment
+source venv/bin/activate
+
+# 4. Install Ronin
+pip install .
+```
+
+You will know it worked when you can run `ronin --version` and see `ronin 2.0.0`.
+
+Every time you open a new Terminal window to use Ronin, you need to activate
+the virtual environment again:
+
+```
+cd ronin
+source venv/bin/activate
+```
+
+### Windows
+
+Open Command Prompt (press Windows key, type "cmd", press Enter) and run
+each line one at a time:
+
+```
+# 1. Download the code
+git clone https://github.com/automationchad/ronin.git
+cd ronin
+
+# 2. Create a virtual environment
+python -m venv venv
+
+# 3. Activate the virtual environment
+venv\Scripts\activate
+
+# 4. Install Ronin
+pip install .
+```
+
+You will know it worked when you can run `ronin --version` and see `ronin 2.0.0`.
+
+Every time you open a new Command Prompt window to use Ronin, you need to
+activate the virtual environment again:
+
+```
+cd ronin
+venv\Scripts\activate
+```
+
+---
+
+## Setup
+
+Run the setup wizard:
+
+```
+ronin setup
+```
+
+This creates your configuration directory at `~/.ronin/` and walks you through
+several screens. You can re-run a specific section at any time:
+
+```
+ronin setup --step personal
+```
+
+The wizard configures the following:
+
+### Personal information
+
+Your name, email, phone number, and location. Used in cover letters and
+application forms.
+
+### Work rights
+
+Citizenship, visa status, driver's licence, willingness to relocate/travel,
+police check status, and notice period. The AI uses these to answer screening
+questions accurately on your behalf.
+
+### Professional profile
+
+Your job title, years of experience, salary expectations, and skills broken
+down by category (languages, cloud platforms, frameworks, etc.). This is the
+core data the AI uses to score jobs and match you to roles.
+
+### Preferences
+
+High-value signals (things that make a job more attractive to you) and red
+flags (things that make a job less attractive). The AI boosts or penalises
+scores based on these. You also set your preferred work types (full-time,
+contract) and arrangements (remote, hybrid, onsite).
+
+### Resume profiles
+
+Ronin supports multiple resumes for different types of roles. Each resume
+profile has:
+
+- **name** -- a short identifier like "default" or "contract_senior"
+- **file** -- a plain-text version of your resume, stored in `~/.ronin/resumes/`
+- **seek_resume_id** -- the UUID of the matching resume on Seek.com.au
+- **use_when** -- rules for when this resume should be selected (e.g. use for
+  contract roles, use for full-time roles)
+
+When the AI analyses a job, it reads the `use_when` rules and picks the best
+resume automatically. If no rule matches, it falls back to the resume named
+"default".
+
+**How to find your Seek resume ID:** When you are on the Seek resume page, the
+URL contains the resume UUID. The setup wizard will guide you through this.
+
+### Cover letter settings
+
+Tone (casual professional, formal, conversational), maximum word count,
+spelling preference (Australian, American, British English), and anti-slop
+rules (phrases the AI must never use, like "passionate about" or "leverage my
+skills").
+
+You can also provide an example cover letter and a highlights file in
+`~/.ronin/assets/` for the AI to reference.
+
+### AI provider configuration
+
+Which AI provider and model to use for each task:
+- Job analysis and scoring (default: Claude)
+- Cover letter generation (default: Claude)
+- Screening question answers (default: GPT-4o)
+
+### API keys
+
+Your Anthropic and/or OpenAI API keys are stored in `~/.ronin/.env`. The
+wizard will prompt you to enter them.
+
+---
+
+## Usage
+
+### Searching for Jobs
+
+```
+ronin search
+```
+
+This command:
+
+1. Scrapes Seek.com.au for jobs matching your configured keywords
+2. Fetches full details for each listing
+3. Filters out jobs you have already seen (tracked in a local database)
+4. Sends each new job description to the AI for scoring
+5. Saves everything to a local SQLite database
+
+You will see a progress bar as it works through each phase. At the end, it
+reports how many new jobs were found, scored, and saved.
+
+**How often to run it:** Every few hours, or set up automatic scheduling (see
+below). New listings appear on Seek throughout the day.
+
+### Applying to Jobs
+
+```
+ronin apply
+```
+
+This command:
+
+1. Pulls all pending jobs from the database (scored but not yet applied to),
+   ordered by score (highest first)
+2. Opens a Chrome browser window
+3. Logs into Seek via Google SSO
+4. For each job: navigates to the listing, selects the right resume, writes
+   and pastes a cover letter, answers screening questions, and clicks submit
+
+**First time:** Chrome will open and you will need to manually complete the
+Google sign-in (enter your password, handle 2FA). After the first login, the
+session is preserved so subsequent runs log in automatically.
+
+**Batch limit:** By default, Ronin applies to up to 100 jobs per run. You can
+change this in `config.yaml` under `application.batch_limit`.
+
+**What "stale" means:** If a job has been taken down since you last searched,
+Ronin marks it as STALE and moves on.
+
+### Checking Status
+
+```
+ronin status
+```
+
+Shows a dashboard of your current pipeline: how many jobs have been discovered,
+how many are pending application, how many have been applied to, and error
+counts.
+
+### Automated Search (Set and Forget)
+
+Instead of manually running `search` every few hours, you can install a
+scheduled task:
+
+```
+ronin schedule install --interval 2
+```
+
+This tells your operating system to run `ronin search` every 2 hours in the
+background.
+
+**macOS:** Creates a launchd job that runs automatically, even after restarts.
+Logs go to `~/.ronin/logs/launchd_search.log`.
+
+**Windows:** Creates a Windows Task Scheduler entry. Logs go to the console
+output of the scheduled task.
+
+**Linux:** Adds a crontab entry. Logs go to `~/.ronin/logs/cron_search.log`.
+
+To check if the schedule is active:
+
+```
+ronin schedule status
+```
+
+To remove the schedule:
+
+```
+ronin schedule uninstall
+```
+
+---
+
+## Configuration
+
+Ronin uses two YAML files and one `.env` file, all stored in `~/.ronin/`.
+
+### Profile (profile.yaml)
+
+Your personal and professional information. Controls how the AI writes cover
+letters, scores jobs, and answers screening questions. Key sections:
+
+| Section | What it controls |
+|---|---|
+| `personal` | Name, email, phone, location |
+| `work_rights` | Citizenship, visa, licence, clearances |
+| `professional` | Title, experience, salary, skills, preferences |
+| `resumes` | Resume profiles and selection rules |
+| `cover_letter` | Tone, length, spelling, anti-slop rules |
+| `ai` | Provider and model for each AI task |
+
+See `profile.example.yaml` in the repo root for a fully commented example.
+
+### Config (config.yaml)
+
+Runtime settings that control how Ronin operates (not who you are):
+
+| Section | What it controls |
+|---|---|
+| `search` | Keywords, location, date range, salary filter |
+| `application` | Salary for forms, batch limit |
+| `scraping` | Rate limiting, timeouts, quick-apply filter |
+| `analysis` | Minimum score threshold |
+| `proxy` | HTTP/HTTPS proxy (optional) |
+| `notifications` | Slack webhook for alerts (optional) |
+| `boards` | Which job boards are enabled |
+| `browser` | Chrome mode and path override |
+| `schedule` | Scheduling interval |
+| `timeouts` | HTTP, page load, element wait timeouts |
+| `retry` | Max attempts, backoff, jitter |
+
+See `config.yaml` in the repo root for a fully commented example.
+
+### Environment Variables (.env)
+
+API keys and credentials. Never committed to version control.
+
+```
+ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+OPENAI_API_KEY=sk-your-key-here
+GOOGLE_EMAIL=your.email@gmail.com
+GOOGLE_PASSWORD=your-google-password
+```
+
+See `.env.example` in the repo root for the full list.
+
+### File Locations
+
+Everything lives under `~/.ronin/` (your home directory):
+
+```
+~/.ronin/
+  config.yaml          # Runtime configuration
+  profile.yaml         # Your personal profile
+  .env                 # API keys and credentials
+  resumes/             # Plain-text resume files
+    default.txt
+    contract.txt
+  assets/              # Cover letter examples, highlights
+    cover_letter_example.txt
+    highlights.txt
+  data/
+    ronin.db           # SQLite database (all jobs, scores, statuses)
+  logs/                # Log files
+    search.log
+    apply.log
+    ronin.log
+```
+
+---
+
+## Troubleshooting
+
+### "No config.yaml found"
+
+You have not run setup yet. Run:
+
+```
+ronin setup
+```
+
+### "ANTHROPIC_API_KEY not set" or "OPENAI_API_KEY not set"
+
+Your `.env` file is missing or does not contain the required key. Check that
+`~/.ronin/.env` exists and has your API key. You can re-run setup to fix this:
+
+```
+ronin setup --step api
+```
+
+Or edit `~/.ronin/.env` directly in any text editor.
+
+### Chrome will not open
+
+- Make sure Google Chrome is installed and up to date.
+- If Chrome is installed in a non-standard location, set `browser.chrome_path`
+  in `config.yaml` to the full path of the Chrome executable.
+- Try setting `browser.mode` to `"testing"` in `config.yaml` to use Chrome for
+  Testing instead of your system Chrome.
+
+### Schedule not running
+
+Run:
+
+```
+ronin schedule status
+```
+
+If it says "Not installed", install it again:
+
+```
+ronin schedule install --interval 2
+```
+
+On macOS, check the log at `~/.ronin/logs/launchd_search.log` for errors.
+
+### Jobs not being found
+
+- Check your keywords in `config.yaml`. Ronin uses Seek's search syntax.
+  Keywords should be quoted: `'"Software engineer"-or-"software engineers"'`
+- Increase `search.date_range` to look further back (default is 2 days).
+- Set `search.location` to a broader area (e.g. `"All-Australia"`).
+- Set `scraping.quick_apply_only` to `false` if you want to include jobs
+  without Quick Apply (note: Ronin can only auto-apply to Quick Apply jobs).
+
+### "Profile not found"
+
+Your profile has not been created. Run:
+
+```
+ronin setup
+```
+
+### Applications failing
+
+- Check `~/.ronin/logs/apply.log` for detailed error messages.
+- Make sure your Seek resume IDs are correctly configured in `profile.yaml`.
+- Expired or removed job listings will be marked STALE automatically.
+- If you see `APP_ERROR` statuses, those jobs will be retried on the next run.
+
+---
+
+## Architecture (For Contributors)
+
+### Codebase Structure
+
+```
+ronin/
+  cli/
+    main.py             # CLI entry point (argparse dispatcher)
+    search.py           # Search command implementation
+    apply.py            # Apply command implementation
+    setup.py            # Interactive setup wizard
+    status.py           # Status dashboard
+  scraper/
+    base.py             # BaseScraper abstract class
+    seek.py             # Seek.com.au scraper implementation
+  analyzer/
+    analyzer.py         # AI job analysis service
+  applier/
+    base.py             # BaseApplier abstract class
+    applier.py          # Seek application automation (Selenium)
+    browser.py          # Chrome WebDriver management
+    cover_letter.py     # Cover letter generation
+    forms.py            # Screening question handler
+    form_applier.py     # Form field automation
+    validation.py       # Application validation
+    ai_handler.py       # AI integration for forms
+    html_formatter.py   # HTML formatting for cover letters
+  prompts/
+    generator.py        # Dynamic prompt generation from profile
+    job_analysis.py     # Static job analysis prompt (fallback)
+    cover_letter.py     # Cover letter prompt template
+    form_fields.py      # Screening question prompt template
+  config.py             # Configuration loading (~/.ronin/config.yaml)
+  profile.py            # Profile loading and validation (Pydantic)
+  db.py                 # SQLite database manager
+  ai.py                 # AI service abstraction (Anthropic + OpenAI)
+  scheduler.py          # Cross-platform scheduling (launchd/schtasks/cron)
+```
+
+### Adding a New Job Board
+
+To support a new job board (e.g. LinkedIn, Indeed), implement two classes:
+
+1. **Scraper** -- subclass `BaseScraper` (in `ronin/scraper/base.py`):
+   - Implement `get_job_previews()` to return a list of job preview dicts
+   - Implement `get_job_details(job_id)` to return full job details
+
+2. **Applier** -- subclass `BaseApplier` (in `ronin/applier/base.py`):
+   - Implement `apply_to_job()` to handle the application flow
+   - Implement `login()` to authenticate with the job board
+   - Implement `cleanup()` to close browser resources
+   - Set `board_name` property to the board identifier
+
+Register the new board in `ronin/applier/base.py:get_applier()` and add a
+toggle in `config.yaml` under the `boards` section.
+
+### How Prompts Work
+
+Ronin generates AI prompts dynamically from your `profile.yaml`. The
+`ronin/prompts/generator.py` module reads your skills, preferences, resume
+profiles, and cover letter settings, then assembles them into system prompts
+for each AI task:
+
+- **Job analysis:** Scores 0-100, classifies as CASH_FLOW or LONG_TERM,
+  identifies tech stack, selects resume profile, writes a recommendation.
+- **Cover letters:** Uses your tone, anti-slop rules, engagement framing,
+  example letter, and resume text to generate a human-sounding cover letter.
+- **Screening questions:** Uses your work rights, skills, and salary
+  expectations to answer form fields (radio buttons, checkboxes, text areas).
+
+### Data Flow
+
+```
+Scraper  -->  Analyzer  -->  SQLiteManager  -->  Applier
+(HTML)        (AI API)       (ronin.db)          (Selenium)
+```
+
+Jobs move through statuses: `DISCOVERED` -> `APPLIED` (or `STALE` / `APP_ERROR`).
+
+---
+
+## License
+
+MIT

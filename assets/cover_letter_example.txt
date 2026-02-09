@@ -1,7 +1,10 @@
-﻿Hi Bluefin Team,
+Hi [Company] Team,
 
-You need someone to build Snowflake pipelines that work. I've done this at Wesfarmers and REST Super, both times inheriting messy systems and turning them into something the team could maintain.
+You need someone who can [specific thing from the job description]. I've done this before at [company] - [one concrete example with a result].
 
-I focus on getting things working first. Happy to chat if it's relevant.
+My background is in [your area]. Most recently I [brief recent achievement]. Before that I [another relevant point].
 
-William
+Happy to chat about how I could help. Available [your availability].
+
+Cheers,
+[Your Name]

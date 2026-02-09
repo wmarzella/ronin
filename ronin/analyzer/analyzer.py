@@ -6,7 +6,9 @@ import anthropic
 from loguru import logger
 
 from ronin.ai import _parse_json_response
+from ronin.profile import load_profile
 from ronin.prompts import JOB_ANALYSIS_PROMPT
+from ronin.prompts.generator import generate_job_analysis_prompt
 
 
 class JobAnalyzerService:
@@ -15,8 +17,15 @@ class JobAnalyzerService:
     def __init__(self, config: Dict, client=None):
         self.config = config
         self.client = client or anthropic.Anthropic()
-        self._system_prompt = JOB_ANALYSIS_PROMPT
         self.model = "claude-sonnet-4-20250514"
+
+        try:
+            profile = load_profile()
+            self._system_prompt = generate_job_analysis_prompt(profile)
+            logger.debug("Using dynamic prompt generated from user profile")
+        except Exception:
+            self._system_prompt = JOB_ANALYSIS_PROMPT
+            logger.debug("No profile found, falling back to static prompt")
 
     def analyze_job(self, job_data: Dict) -> Optional[Dict]:
         """
@@ -78,6 +87,7 @@ class JobAnalyzerService:
 
             enriched_job = job_data.copy()
             enriched_job["analysis"] = analysis
+            enriched_job["resume_profile"] = analysis.get("resume_profile")
 
             min_score = self.config.get("analysis", {}).get("min_score", 0)
             job_score = analysis.get("score", 0)

@@ -12,6 +12,13 @@ from ronin.prompts import (
     COVER_LETTER_SYSTEM_PROMPT,
 )
 
+try:
+    from ronin.profile import load_profile
+    from ronin.prompts.generator import generate_cover_letter_prompt
+except ImportError:
+    load_profile = None  # type: ignore[assignment,misc]
+    generate_cover_letter_prompt = None  # type: ignore[assignment,misc]
+
 
 class CoverLetterGenerator:
     """Handles the generation of cover letters for job applications."""
@@ -24,6 +31,14 @@ class CoverLetterGenerator:
             ai_service: An instance of AnthropicService. If None, a new instance will be created.
         """
         self.ai_service = ai_service or AnthropicService()
+
+        self.profile = None
+        if load_profile is not None:
+            try:
+                self.profile = load_profile()
+                logger.debug("Loaded user profile for cover letter generation")
+            except Exception as e:
+                logger.debug(f"Profile not available, using legacy prompts: {e}")
 
     def generate_cover_letter(
         self,
@@ -49,40 +64,65 @@ class CoverLetterGenerator:
             Dictionary containing the generated cover letter or None if generation failed.
         """
         try:
-            # Load example cover letter
-            with open("assets/cover_letter_example.txt", "r") as f:
-                example = f.read()
+            is_contract = work_type and "contract" in work_type.lower()
+            engagement_type = "CONTRACT/TEMP" if is_contract else "FULL-TIME/PERMANENT"
 
-            # Load condensed highlights for cover letter context
-            highlights_path = (
-                Path(__file__).parent.parent.parent / "assets" / "highlights.txt"
-            )
-            if highlights_path.exists():
-                resume_text = highlights_path.read_text()
-            else:
-                # Fallback to full resume if highlights doesn't exist
-                resume_text = (
-                    self._get_resume_text(tech_stack)
-                    if resume_text is None
-                    else resume_text
+            if self.profile is not None and generate_cover_letter_prompt is not None:
+                # --- Profile-based path ---
+                highlights = self.profile.get_highlights_text()
+                if highlights:
+                    resume_text = highlights
+                else:
+                    resume_text = (
+                        self._get_resume_text(tech_stack)
+                        if resume_text is None
+                        else resume_text
+                    )
+
+                example = self.profile.get_cover_letter_example()
+
+                engagement_context = (
+                    self.profile.cover_letter.contract_framing
+                    if is_contract
+                    else self.profile.cover_letter.fulltime_framing
                 )
 
-            # Determine engagement type and appropriate framing
-            is_contract = work_type and "contract" in work_type.lower()
+                system_prompt = generate_cover_letter_prompt(
+                    profile=self.profile,
+                    engagement_type=engagement_type,
+                    engagement_context=engagement_context,
+                    example=example,
+                    resume_text=resume_text,
+                )
+            else:
+                # --- Legacy hardcoded path ---
+                with open("assets/cover_letter_example.txt", "r") as f:
+                    example = f.read()
 
-            engagement_type = "CONTRACT/TEMP" if is_contract else "FULL-TIME/PERMANENT"
-            engagement_context = (
-                COVER_LETTER_CONTRACT_CONTEXT
-                if is_contract
-                else COVER_LETTER_FULLTIME_CONTEXT
-            )
+                highlights_path = (
+                    Path(__file__).parent.parent.parent / "assets" / "highlights.txt"
+                )
+                if highlights_path.exists():
+                    resume_text = highlights_path.read_text()
+                else:
+                    resume_text = (
+                        self._get_resume_text(tech_stack)
+                        if resume_text is None
+                        else resume_text
+                    )
 
-            system_prompt = COVER_LETTER_SYSTEM_PROMPT.format(
-                engagement_type=engagement_type,
-                engagement_context=engagement_context,
-                example=example,
-                resume_text=resume_text,
-            )
+                engagement_context = (
+                    COVER_LETTER_CONTRACT_CONTEXT
+                    if is_contract
+                    else COVER_LETTER_FULLTIME_CONTEXT
+                )
+
+                system_prompt = COVER_LETTER_SYSTEM_PROMPT.format(
+                    engagement_type=engagement_type,
+                    engagement_context=engagement_context,
+                    example=example,
+                    resume_text=resume_text,
+                )
 
             user_message = f"Write a cover letter for the {'contract' if is_contract else 'full-time'} role of {title} at {company_name}: {job_description}"
 
@@ -99,6 +139,13 @@ class CoverLetterGenerator:
 
     def _get_resume_text(self, tech_stack: str) -> str:
         """Get the resume text based on tech stack or job classification."""
+        if self.profile is not None:
+            try:
+                return self.profile.get_resume_text(tech_stack)
+            except (KeyError, FileNotFoundError) as e:
+                logger.debug(f"Profile resume lookup failed, using legacy path: {e}")
+
+        # Legacy hardcoded path
         tech_stack = tech_stack.lower() if tech_stack else "c"
         base_path = Path(__file__).parent.parent.parent / "assets" / "cv"
 

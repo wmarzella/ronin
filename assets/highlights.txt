@@ -1,22 +1,26 @@
-William Marzella - Senior Data Engineer
-7+ years | AWS, Databricks, Snowflake, dbt, Python, Terraform
+EXAMPLE HIGHLIGHTS - Condensed Resume Summary for Cover Letters
+================================================================
 
-Key Results:
-- $150K annual savings through AWS cost optimisation and FinOps governance
-- 60% cost reduction on Oracle-to-Snowflake migrations
-- $2M+ ARR retention via customer analytics platform (10M+ daily events)
-- Built production lakehouses processing 1B+ monthly events
+Replace this with a condensed version of your resume highlights
+during setup by running: ronin setup
+
+This file is used as context when generating cover letters.
+Keep it under 30 lines - just the key points a recruiter needs.
+
+Key Skills: [Your top 5-8 skills]
+Years Experience: [N years]
+Specialisation: [Your niche/focus area]
+
+Notable Achievements:
+- [Achievement 1 with metric]
+- [Achievement 2 with metric]
+- [Achievement 3 with metric]
 
 Recent Roles:
-- Wesfarmers OneDigital (2025): Customer loyalty data products, Snowflake/dbt/Airflow, data governance for OnePass
-- REST Industry Super (2025): $70B fund, regulatory compliance platform, 1.7M members, AWS/Snowflake lakehouse
-- Alfab (2024-25): Oracle-to-Snowflake migration, real-time Kafka pipelines, predictive maintenance
-- Tray.io (2021-23): Databricks lakehouse for Fortune 500 clients, HIPAA/PCI compliance, EKS/Kubernetes
+- [Current/Recent Role] at [Company] - [One line summary]
+- [Previous Role] at [Company] - [One line summary]
 
-Core Skills:
-- AWS: S3, Glue, Lambda, EMR, ECS/EKS, Step Functions, CloudWatch
-- Data: Snowflake, Databricks, dbt, Airflow, Delta Lake, Kafka
-- Infrastructure: Terraform, Docker, Kubernetes, CI/CD
-- Languages: Python, SQL, PySpark
-
-Certifications: AWS Solutions Architect, AWS Data Engineer, Terraform, SnowPro Core, dbt
+What I Bring:
+- [Value proposition 1]
+- [Value proposition 2]
+- [Value proposition 3]

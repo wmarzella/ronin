@@ -23,11 +23,21 @@ class SQLiteManager:
     def __init__(self, db_path: Optional[str] = None):
         """Initialize SQLite database connection."""
         if db_path is None:
-            db_path = os.path.join(
+            # Check RONIN_HOME first, then fallback to project root
+            ronin_home = os.environ.get("RONIN_HOME", os.path.expanduser("~/.ronin"))
+            user_db = os.path.join(ronin_home, "data", "ronin.db")
+            project_db = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                 "data",
                 "ronin.db",
             )
+            # Prefer user dir if it exists, otherwise use project root
+            if os.path.exists(os.path.dirname(user_db)):
+                db_path = user_db
+            elif os.path.exists(os.path.dirname(project_db)):
+                db_path = project_db
+            else:
+                db_path = user_db  # Will be created
 
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
@@ -84,6 +94,7 @@ class SQLiteManager:
                 open_job INTEGER DEFAULT 0,
                 last_modified TEXT,
                 job_classification TEXT DEFAULT 'CASH_FLOW',
+                resume_profile TEXT DEFAULT 'default',
                 FOREIGN KEY (company_id) REFERENCES companies(id)
             )
         """
@@ -104,6 +115,15 @@ class SQLiteManager:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_classification ON jobs(job_classification)"
         )
+
+        # Migration: add resume_profile column if it doesn't exist
+        try:
+            cursor.execute("SELECT resume_profile FROM jobs LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute(
+                "ALTER TABLE jobs ADD COLUMN resume_profile TEXT DEFAULT 'default'"
+            )
+            logger.info("Migrated database: added resume_profile column")
 
         self.conn.commit()
         logger.debug("Database schema initialized")
@@ -187,8 +207,9 @@ class SQLiteManager:
                 """INSERT INTO jobs (
                     job_id, title, description, score, tech_stack, recommendation,
                     overview, url, source, quick_apply, created_at, pay, type,
-                    location, status, keywords, company_id, job_classification
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    location, status, keywords, company_id, job_classification,
+                    resume_profile
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     job_id,
                     job_data.get("title", ""),
@@ -208,6 +229,7 @@ class SQLiteManager:
                     ", ".join(analysis_data.get("tech_keywords", [])),
                     company_id,
                     analysis_data.get("job_classification", "CASH_FLOW"),
+                    analysis_data.get("resume_profile", "default"),
                 ),
             )
             self.conn.commit()
@@ -276,6 +298,7 @@ class SQLiteManager:
                     "Job Classification": job_dict.get(
                         "job_classification", "CASH_FLOW"
                     ),
+                    "Resume Profile": job_dict.get("resume_profile", "default"),
                 }
                 jobs.append(job_dict)
 
@@ -326,6 +349,7 @@ class SQLiteManager:
             "overview",
             "last_modified",
             "job_classification",
+            "resume_profile",
             "title",
             "description",
             "url",

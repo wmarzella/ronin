@@ -19,6 +19,11 @@ from ronin.applier.cover_letter import CoverLetterGenerator
 from ronin.applier.forms import QuestionAnswerHandler
 from ronin.config import load_config
 
+try:
+    from ronin.profile import load_profile
+except ImportError:
+    load_profile = None
+
 
 class SeekApplier:
     """Handles job applications on Seek.com.au."""
@@ -59,10 +64,12 @@ class SeekApplier:
 
     def __init__(self):
         self.config = load_config()
-        # B resume = humble/understated (for LONG_TERM jobs)
-        self.b_resume_id = self.config["resume"]["b_resume_id"]
-        # C resume = aggressive/impressive (for CASH_FLOW jobs)
-        self.c_resume_id = self.config["resume"]["c_resume_id"]
+        self.profile = None
+        if load_profile is not None:
+            try:
+                self.profile = load_profile()
+            except Exception as e:
+                logger.warning(f"Could not load profile: {e}")
         self.ai_service = AIService()
         self.cover_letter_generator = (
             CoverLetterGenerator()
@@ -114,8 +121,8 @@ class SeekApplier:
         except Exception as e:
             raise Exception(f"Failed to navigate to job {job_id}: {str(e)}")
 
-    def _handle_resume(self, job_id: str, job_classification: str):
-        """Handle resume selection for Seek applications based on job classification."""
+    def _handle_resume(self, job_id: str, resume_profile: str = "default"):
+        """Handle resume selection for Seek applications based on resume profile name."""
         try:
             WebDriverWait(self.chrome_driver.driver, 10).until(
                 EC.presence_of_element_located(
@@ -123,13 +130,30 @@ class SeekApplier:
                 )
             )
 
-            # LONG_TERM jobs get B resume (humble), CASH_FLOW jobs get C resume (aggressive)
-            if job_classification == "LONG_TERM":
-                resume_id = self.b_resume_id
-                logger.info(f"Job {job_id}: LONG_TERM -> using B resume (humble)")
-            else:
-                resume_id = self.c_resume_id
-                logger.info(f"Job {job_id}: CASH_FLOW -> using C resume (aggressive)")
+            # Look up seek_resume_id from the profile
+            resume_id = None
+            if self.profile and self.profile.resumes:
+                try:
+                    rp = self.profile.get_resume(resume_profile)
+                    resume_id = rp.seek_resume_id
+                    logger.info(
+                        f"Job {job_id}: using resume profile '{resume_profile}' "
+                        f"(seek_resume_id={resume_id})"
+                    )
+                except KeyError:
+                    # Profile name not found, fall back to first available resume
+                    rp = self.profile.resumes[0]
+                    resume_id = rp.seek_resume_id
+                    logger.warning(
+                        f"Job {job_id}: resume profile '{resume_profile}' not found, "
+                        f"falling back to '{rp.name}' (seek_resume_id={resume_id})"
+                    )
+
+            if not resume_id:
+                raise ValueError(
+                    f"No seek_resume_id resolved for profile '{resume_profile}'. "
+                    "Check profile.yaml resumes configuration."
+                )
 
             resume_select = Select(
                 self.chrome_driver.driver.find_element(
@@ -681,7 +705,7 @@ class SeekApplier:
         tech_stack,
         company_name,
         title,
-        job_classification="CASH_FLOW",
+        resume_profile="default",
         work_type=None,
     ):
         """Apply to a specific job on Seek"""
@@ -694,7 +718,7 @@ class SeekApplier:
 
             # Log to verify we're using the right company name
             logger.info(
-                f"Applying to job at company: {company_name} (classification: {job_classification})"
+                f"Applying to job at company: {company_name} (resume_profile: {resume_profile})"
             )
 
             if not self.chrome_driver.is_logged_in:
@@ -706,7 +730,7 @@ class SeekApplier:
             if navigation_result == "STALE":
                 return "STALE"
 
-            self._handle_resume(job_id, job_classification)
+            self._handle_resume(job_id, resume_profile)
             cover_letter_success = self._handle_cover_letter(
                 score=score,
                 job_description=job_description,

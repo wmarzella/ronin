@@ -1,1 +1,1 @@
-"""CLI entry points for ronin."""
+"""Ronin CLI commands."""

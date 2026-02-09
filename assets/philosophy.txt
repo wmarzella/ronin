@@ -1,15 +1,12 @@
-I've worked on enough data platforms to know what actually matters.
+EXAMPLE PHILOSOPHY - Your Engineering Philosophy (Optional)
+=============================================================
 
-Most fail not from bad tech choices, but from building too much too soon. Teams obsess over tools while the business waits months for a single reliable number. I'd rather ship something useful in week one than architect the perfect lakehouse that never gets queried.
+Replace this with your own engineering philosophy or approach.
+This file is optional and can be referenced in prompts if you want
+your cover letters to reflect your professional values.
 
-I'm skeptical of complexity. If a problem can be solved with a SQL view, I'm not reaching for Spark. If a cron job works, I'm not setting up Airflow. The right tool is usually the boring one.
-
-I care more about whether data gets used than whether the pipeline is elegant. A dashboard that changes one decision is worth more than a warehouse full of tables nobody touches.
-
-I delete things. Dead code, unused tables, over-engineered abstractions - they all slow teams down. Cleaning up is real work, not a side project.
-
-I'm direct about tradeoffs. If something will take longer than expected, I'll say so early. If a requirement doesn't make sense, I'll push back before building it wrong. I'd rather have an uncomfortable conversation now than a failed project later.
-
-I don't need hand-holding, but I ask questions. Understanding the actual problem matters more than jumping straight to implementation. Sometimes the best engineering is realizing you don't need to build anything.
-
-I'm not precious about my work. If someone has a better idea, I'll use it. If something I built needs to be thrown away, fine. The goal is solving the problem, not protecting my code.
+Example:
+"I believe good engineering is about solving problems simply. The best
+system is the one that's easy to understand, easy to change, and does
+exactly what it needs to do - nothing more. I'd rather ship something
+that works and iterate than architect the perfect solution on paper."

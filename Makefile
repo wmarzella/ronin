@@ -1,17 +1,22 @@
-.PHONY: help install search apply format lint check clean setup test
+.PHONY: help install setup search apply status test format lint check clean
 
-# Ronin - Job Search Automation
+# Ronin - AI-Powered Job Application Automation
 
 help:
-	@echo "Ronin - Job Search Automation"
-	@echo "=============================="
+	@echo "Ronin - AI-Powered Job Application Automation"
+	@echo "==============================================="
 	@echo ""
-	@echo "Commands:"
+	@echo "Getting Started:"
 	@echo "  make install    - Install dependencies"
+	@echo "  make setup      - Run interactive setup wizard"
+	@echo ""
+	@echo "Usage:"
 	@echo "  make search     - Search for jobs"
-	@echo "  make apply      - Apply to jobs"
+	@echo "  make apply      - Apply to discovered jobs"
+	@echo "  make status     - Show status dashboard"
 	@echo ""
 	@echo "Development:"
+	@echo "  make test       - Test all imports"
 	@echo "  make format     - Format code with Black"
 	@echo "  make lint       - Lint code with Flake8"
 	@echo "  make check      - Run both formatting and linting"
@@ -20,21 +25,35 @@ help:
 install:
 	@echo "Installing dependencies..."
 	@pip install -r requirements.txt
-	@echo "Done!"
+	@echo ""
+	@echo "Done! Run 'make setup' to configure Ronin."
 
-setup: install
+setup:
+	@python -m ronin.cli.main setup
 
 search:
-	@echo "Searching for jobs..."
-	@source venv/bin/activate && python -m ronin.cli.search
+	@python -m ronin.cli.main search
 
 apply:
-	@echo "Applying to jobs..."
-	@source venv/bin/activate && python -m ronin.cli.apply
+	@python -m ronin.cli.main apply
+
+status:
+	@python -m ronin.cli.main status
 
 test:
 	@echo "Testing imports..."
-	@source venv/bin/activate && python -c "from ronin.config import load_config; from ronin.scraper import SeekScraper; from ronin.analyzer import JobAnalyzerService; from ronin.applier import SeekApplier; from ronin.db import SQLiteManager; from ronin.ai import AIService; print('All imports successful!')"
+	@python -c "\
+		from ronin.config import load_config, get_ronin_home; \
+		from ronin.profile import load_profile, Profile; \
+		from ronin.scraper import SeekScraper; \
+		from ronin.analyzer import JobAnalyzerService; \
+		from ronin.applier import SeekApplier; \
+		from ronin.applier.base import BaseApplier, get_applier; \
+		from ronin.db import SQLiteManager; \
+		from ronin.ai import AIService; \
+		from ronin.prompts.generator import generate_job_analysis_prompt; \
+		from ronin.scheduler import get_schedule_status; \
+		print('All imports successful!')"
 
 format:
 	@echo "Formatting code..."
@@ -52,5 +71,4 @@ clean:
 	@echo "Cleaning up..."
 	@find . -type f -name "*.pyc" -delete
 	@find . -type d -name "__pycache__" -delete
-	@find . -type f -name "*.log" -delete
 	@echo "Done!"
