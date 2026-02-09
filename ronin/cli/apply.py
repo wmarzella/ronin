@@ -15,35 +15,38 @@ from rich.progress import (
 from rich.table import Table
 
 from ronin.applier import SeekApplier
-from ronin.config import load_config, load_env
+from ronin.config import get_ronin_home, load_config, load_env
 from ronin.db import SQLiteManager
 
 console = Console()
-
-# Configure logging — file gets everything, console gets INFO+ routed through Rich
-logger.remove()
-logger.add(
-    "logs/apply.log",
-    rotation="10 MB",
-    level="DEBUG",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
-)
 
 
 def _rich_sink(message: str) -> None:
     console.print(message.rstrip(), highlight=False)
 
 
-logger.add(
-    _rich_sink,
-    level="INFO",
-    format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
-)
+def _configure_logging() -> None:
+    """Add apply-specific log handlers (file + Rich console)."""
+    log_dir = get_ronin_home() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.add(
+        str(log_dir / "apply.log"),
+        rotation="10 MB",
+        level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
+    )
+    logger.add(
+        _rich_sink,
+        level="INFO",
+        format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
+    )
 
 
 def main():
     """Main job application function."""
     load_env()
+    _configure_logging()
 
     console.print("\n[bold blue]Ronin Job Applier[/bold blue]\n")
 
@@ -122,10 +125,12 @@ def main():
                         )
                     else:
                         failed += 1
+                        db_manager.update_record(record_id, {"status": "APP_ERROR"})
                         console.print(f"  [red]✗[/red] {job_title}")
 
                 except Exception as e:
                     failed += 1
+                    db_manager.update_record(record_id, {"status": "APP_ERROR"})
                     console.print(
                         f"  [red]✗[/red] {job_title} [dim]({str(e)[:30]})[/dim]"
                     )

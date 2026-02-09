@@ -24,10 +24,12 @@ class SQLiteManager:
         """Initialize SQLite database connection."""
         if db_path is None:
             # Check RONIN_HOME first, then fallback to project root
-            ronin_home = os.environ.get("RONIN_HOME", os.path.expanduser("~/.ronin"))
+            from ronin.config import get_ronin_home
+
+            ronin_home = str(get_ronin_home())
             user_db = os.path.join(ronin_home, "data", "ronin.db")
             project_db = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                os.path.dirname(os.path.dirname(__file__)),
                 "data",
                 "ronin.db",
             )
@@ -116,14 +118,18 @@ class SQLiteManager:
             "CREATE INDEX IF NOT EXISTS idx_jobs_classification ON jobs(job_classification)"
         )
 
-        # Migration: add resume_profile column if it doesn't exist
-        try:
-            cursor.execute("SELECT resume_profile FROM jobs LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute(
-                "ALTER TABLE jobs ADD COLUMN resume_profile TEXT DEFAULT 'default'"
-            )
-            logger.info("Migrated database: added resume_profile column")
+        # Migrations: add columns if they don't exist on older databases
+        for col, default in [
+            ("job_classification", "'CASH_FLOW'"),
+            ("resume_profile", "'default'"),
+        ]:
+            try:
+                cursor.execute(f"SELECT {col} FROM jobs LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(
+                    f"ALTER TABLE jobs ADD COLUMN {col} TEXT DEFAULT {default}"
+                )
+                logger.info(f"Migrated database: added {col} column")
 
         self.conn.commit()
         logger.debug("Database schema initialized")

@@ -20,12 +20,11 @@ from typing import Optional
 import yaml
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, ScrollableContainer, Vertical
+from textual.containers import Horizontal, ScrollableContainer
 from textual.screen import Screen
 from textual.widgets import (
     Button,
     Checkbox,
-    DataTable,
     Footer,
     Header,
     Input,

@@ -3,28 +3,11 @@
 import json
 import os
 import re
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Optional
 
 import anthropic
 from loguru import logger
 from openai import OpenAI, OpenAIError
-
-
-class LLMService(Protocol):
-    """Protocol for LLM services - implement this interface to add new providers."""
-
-    model: str
-
-    def chat_completion(
-        self,
-        system_prompt: str,
-        user_message: str,
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-    ) -> Optional[Dict[str, Any]]:
-        """Make a chat completion request and return parsed JSON response."""
-        ...
 
 
 def _parse_json_response(response_content: str) -> Optional[Dict[str, Any]]:
@@ -79,7 +62,7 @@ def _parse_json_response(response_content: str) -> Optional[Dict[str, Any]]:
                     except json.JSONDecodeError:
                         break
 
-    logger.error(f"JSON parsing failed after all attempts")
+    logger.error("JSON parsing failed after all attempts")
     logger.error(f"Response content: {response_content[:500]}")
     raise json.JSONDecodeError(
         "Failed to parse response after multiple attempts",
@@ -88,7 +71,7 @@ def _parse_json_response(response_content: str) -> Optional[Dict[str, Any]]:
     )
 
 
-def _post_process_json(parsed_json: Dict) -> Dict:
+def _post_process_json(parsed_json: Any) -> Any:
     """Post-process JSON to fix line breaks in text fields."""
     if isinstance(parsed_json, dict):
         for key, value in parsed_json.items():
@@ -109,7 +92,7 @@ class AIService:
             raise ValueError("OPENAI_API_KEY environment variable is required")
 
         self.client = OpenAI(api_key=self.api_key)
-        self.model = "gpt-5.2"  # Latest OpenAI model
+        self.model = "gpt-4o"
 
     def chat_completion(
         self,
@@ -142,6 +125,9 @@ class AIService:
             )
 
             response_content = response.choices[0].message.content
+            if not response_content:
+                logger.error("OpenAI returned empty response content")
+                return None
             logger.debug(f"Raw OpenAI response: {response_content[:200]}...")
 
             return _parse_json_response(response_content)
@@ -196,6 +182,9 @@ class AnthropicService:
                 temperature=temperature,
             )
 
+            if not response.content:
+                logger.error("Anthropic returned empty response content")
+                return None
             response_content = response.content[0].text
             logger.debug(f"Raw Anthropic response: {response_content[:200]}...")
 

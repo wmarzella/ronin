@@ -7,13 +7,13 @@ from loguru import logger
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
-    WebDriverException,
 )
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
 from ronin.ai import AIService
+from ronin.applier.base import BaseApplier
 from ronin.applier.browser import ChromeDriver
 from ronin.applier.cover_letter import CoverLetterGenerator
 from ronin.applier.forms import QuestionAnswerHandler
@@ -25,7 +25,7 @@ except ImportError:
     load_profile = None
 
 
-class SeekApplier:
+class SeekApplier(BaseApplier):
     """Handles job applications on Seek.com.au."""
 
     COMMON_PATTERNS = {
@@ -78,6 +78,16 @@ class SeekApplier:
         self.chrome_driver = ChromeDriver()
         self.current_tech_stack = None
         self.current_job_description = None
+
+    @property
+    def board_name(self) -> str:
+        return "seek"
+
+    def login(self) -> bool:
+        """Log in to Seek via the ChromeDriver."""
+        self.chrome_driver.initialize()
+        self.chrome_driver.login_seek()
+        return self.chrome_driver.is_logged_in
 
     def _navigate_to_job(self, job_id: str):
         """Navigate to the specific job application page."""
@@ -432,9 +442,9 @@ class SeekApplier:
     ) -> dict:
         """Fetch AI responses for all questions in parallel."""
         assert isinstance(elements, list), "elements must be list"
-        assert isinstance(has_validation_errors, bool), (
-            "has_validation_errors must be bool"
-        )
+        assert isinstance(
+            has_validation_errors, bool
+        ), "has_validation_errors must be bool"
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -624,7 +634,7 @@ class SeekApplier:
                     )
                     if submit_button:
                         break
-                except:
+                except Exception:
                     continue
 
             if not submit_button:
@@ -694,7 +704,7 @@ class SeekApplier:
             self.chrome_driver.driver.implicitly_wait(10)
 
             return False
-        except:
+        except Exception:
             return False
 
     def apply_to_job(

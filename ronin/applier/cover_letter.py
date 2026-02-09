@@ -96,8 +96,12 @@ class CoverLetterGenerator:
                 )
             else:
                 # --- Legacy hardcoded path ---
-                with open("assets/cover_letter_example.txt", "r") as f:
-                    example = f.read()
+                example_path = (
+                    Path(__file__).parent.parent.parent
+                    / "assets"
+                    / "cover_letter_example.txt"
+                )
+                example = example_path.read_text() if example_path.exists() else ""
 
                 highlights_path = (
                     Path(__file__).parent.parent.parent / "assets" / "highlights.txt"

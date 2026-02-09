@@ -5,13 +5,14 @@ the RONIN_HOME environment variable) and validates it against the expected
 schema using Pydantic v2 models.
 """
 
-import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from ronin.config import get_ronin_home
 
 
 # ---------------------------------------------------------------------------
@@ -55,12 +56,20 @@ class ProfessionalInfo(BaseModel):
     """Professional profile: title, experience, skills, preferences."""
 
     title: str = ""
-    years_experience: int = 0
-    salary_min: int = 0
-    salary_max: int = 0
+    years_experience: int = Field(default=0, ge=0)
+    salary_min: int = Field(default=0, ge=0)
+    salary_max: int = Field(default=0, ge=0)
     salary_currency: str = "AUD"
     skills: Dict[str, List[str]] = Field(default_factory=dict)
     preferences: Preferences = Field(default_factory=Preferences)
+
+    @model_validator(mode="after")
+    def _validate_salary_range(self) -> "ProfessionalInfo":
+        if self.salary_min and self.salary_max and self.salary_min > self.salary_max:
+            raise ValueError(
+                f"salary_min ({self.salary_min}) must be <= salary_max ({self.salary_max})"
+            )
+        return self
 
 
 class ResumeUseWhen(BaseModel):
@@ -83,7 +92,7 @@ class CoverLetterConfig(BaseModel):
     """Cover letter generation settings."""
 
     tone: str = "casual professional"
-    max_words: int = 150
+    max_words: int = Field(default=150, gt=0)
     spelling: str = "Australian English"
     example_file: str = ""
     highlights_file: str = ""
@@ -266,22 +275,6 @@ class Profile(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def get_ronin_home() -> Path:
-    """Return the Ronin home directory.
-
-    Checks the ``RONIN_HOME`` environment variable first, falling back to
-    ``~/.ronin/``.  The directory is *not* created automatically; callers
-    that need it to exist should handle that themselves.
-
-    Returns:
-        Absolute ``Path`` to the Ronin home directory.
-    """
-    env = os.environ.get("RONIN_HOME")
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".ronin"
-
-
 def load_profile(path: Optional[Path] = None) -> Profile:
     """Load and validate the user profile from YAML.
 
@@ -298,7 +291,17 @@ def load_profile(path: Optional[Path] = None) -> Profile:
         yaml.YAMLError: If the file contains invalid YAML syntax.
     """
     if path is None:
-        path = get_ronin_home() / "profile.yaml"
+        user_path = get_ronin_home() / "profile.yaml"
+        project_path = Path(__file__).parent.parent / "profile.yaml"
+        if user_path.exists():
+            path = user_path
+        elif project_path.exists():
+            path = project_path
+        else:
+            raise FileNotFoundError(
+                f"Profile not found. Run `ronin setup` to create your profile.\n"
+                f"Checked:\n  - {user_path}\n  - {project_path}"
+            )
 
     if not path.exists():
         raise FileNotFoundError(

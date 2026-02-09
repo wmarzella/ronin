@@ -15,36 +15,39 @@ from rich.progress import (
 from rich.table import Table
 
 from ronin.analyzer import JobAnalyzerService
-from ronin.config import load_config, load_env
+from ronin.config import get_ronin_home, load_config, load_env
 from ronin.db import SQLiteManager
 from ronin.scraper import SeekScraper
 
 console = Console()
-
-# Configure logging — file gets everything, console gets INFO+ routed through Rich
-logger.remove()
-logger.add(
-    "logs/search.log",
-    rotation="10 MB",
-    level="DEBUG",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
-)
 
 
 def _rich_sink(message: str) -> None:
     console.print(message.rstrip(), highlight=False)
 
 
-logger.add(
-    _rich_sink,
-    level="INFO",
-    format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
-)
+def _configure_logging() -> None:
+    """Add search-specific log handlers (file + Rich console)."""
+    log_dir = get_ronin_home() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.add(
+        str(log_dir / "search.log"),
+        rotation="10 MB",
+        level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
+    )
+    logger.add(
+        _rich_sink,
+        level="INFO",
+        format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <7}</level> | {message}",
+    )
 
 
 def main():
     """Main job search function."""
     load_env()
+    _configure_logging()
 
     console.print("\n[bold blue]Ronin Job Search[/bold blue]\n")
 
@@ -158,8 +161,11 @@ def main():
                         analyzed_jobs.append(analyzed_job)
                     else:
                         failed_count += 1
-                except Exception:
+                except Exception as e:
                     failed_count += 1
+                    logger.error(
+                        f"Analysis failed for {job.get('title', 'unknown')}: {e}"
+                    )
 
                 progress.advance(task)
 

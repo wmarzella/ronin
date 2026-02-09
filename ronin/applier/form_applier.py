@@ -73,7 +73,6 @@ class FormApplier:
         logger.debug(f"Checkbox group '{name}': AI selected {desired_ids}")
         logger.debug(f"Available checkbox IDs: {available_ids}")
 
-        matched = desired_ids & set(available_ids)
         unmatched = desired_ids - set(available_ids)
         if unmatched:
             logger.warning(f"AI returned IDs that don't exist: {unmatched}")

@@ -22,10 +22,16 @@ class JobAnalyzerService:
         try:
             profile = load_profile()
             self._system_prompt = generate_job_analysis_prompt(profile)
-            logger.debug("Using dynamic prompt generated from user profile")
-        except Exception:
+            # Use model from profile if configured
+            if profile.ai.analysis_model:
+                self.model = profile.ai.analysis_model
+            logger.debug(f"Using dynamic prompt from profile (model: {self.model})")
+        except FileNotFoundError:
             self._system_prompt = JOB_ANALYSIS_PROMPT
             logger.debug("No profile found, falling back to static prompt")
+        except Exception as e:
+            self._system_prompt = JOB_ANALYSIS_PROMPT
+            logger.warning(f"Error loading profile, falling back to static prompt: {e}")
 
     def analyze_job(self, job_data: Dict) -> Optional[Dict]:
         """

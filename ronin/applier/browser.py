@@ -1,6 +1,5 @@
 """Chrome WebDriver manager for browser automation tasks."""
 
-import glob
 import json
 import os
 import platform
@@ -11,11 +10,7 @@ from pathlib import Path
 
 from loguru import logger
 from selenium import webdriver
-from selenium.common.exceptions import (
-    NoSuchElementException,
-    TimeoutException,
-    WebDriverException,
-)
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait

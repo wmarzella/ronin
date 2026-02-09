@@ -253,8 +253,11 @@ class SeekScraper(BaseScraper):
                 return None
 
             description_text = description_element.get_text(separator="\n").strip()
-            description_text = description_text.encode("ascii", "ignore").decode(
-                "ascii"
+            # Clean control characters but preserve Unicode (accented names, bullets, etc.)
+            import re as _re
+
+            description_text = _re.sub(
+                r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", description_text
             )
 
             location_element = soup.find(
@@ -321,7 +324,7 @@ class SeekScraper(BaseScraper):
                     if self._is_valid_salary(salary_text):
                         return salary_text
 
-            for element in soup.find_all(text=True):
+            for element in soup.find_all(string=True):
                 text = element.strip()
                 if "$" in text and self._is_valid_salary(text):
                     return text

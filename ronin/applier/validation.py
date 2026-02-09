@@ -1,7 +1,6 @@
 """Form validation checking functionality."""
 
 from loguru import logger
-from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver.common.by import By
 
 

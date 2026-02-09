@@ -16,26 +16,37 @@ from typing import Optional
 
 from loguru import logger
 
-RONIN_HOME = Path(os.environ.get("RONIN_HOME", Path.home() / ".ronin"))
 PLIST_LABEL = "com.ronin.search"
-PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 WINDOWS_TASK_NAME = "Ronin Job Search"
+
+
+def _get_ronin_home() -> Path:
+    """Get RONIN_HOME at call time (not import time)."""
+    return Path(os.environ.get("RONIN_HOME", str(Path.home() / ".ronin")))
+
+
+def _get_plist_path() -> Path:
+    """Get the launchd plist path (macOS only, safe to call on any platform)."""
+    return Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
+
+
 CRONTAB_MARKER = "# ronin-scheduled-search"
 
 
-def _resolve_ronin_executable() -> str:
-    """Find the ronin executable path.
+def _resolve_ronin_command() -> list:
+    """Find the ronin command, returning a list of arguments.
 
     Checks for an installed ``ronin`` CLI first (via PATH), then falls back to
-    the current Python interpreter as a proxy.
+    running via ``python -m ronin.cli.main``.
 
     Returns:
-        Absolute path to the executable.
+        List of command parts (e.g. ``["ronin"]`` or
+        ``["/path/to/python", "-m", "ronin.cli.main"]``).
     """
     which_ronin = shutil.which("ronin")
     if which_ronin:
-        return str(Path(which_ronin).resolve())
-    return sys.executable
+        return [str(Path(which_ronin).resolve())]
+    return [sys.executable, "-m", "ronin.cli.main"]
 
 
 def _current_platform() -> str:
@@ -71,13 +82,20 @@ def _macos_install(interval_hours: int) -> bool:
     Returns:
         True if the plist was written and loaded successfully.
     """
-    ronin_exec = _resolve_ronin_executable()
+    ronin_cmd = _resolve_ronin_command()
     interval_seconds = interval_hours * 3600
 
-    log_dir = RONIN_HOME / "logs"
+    ronin_home = _get_ronin_home()
+    log_dir = ronin_home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    plist_xml = textwrap.dedent(f"""\
+    # Build ProgramArguments XML entries
+    args_xml = "\n".join(
+        f"            <string>{part}</string>" for part in ronin_cmd + ["search"]
+    )
+
+    plist_xml = textwrap.dedent(
+        f"""\
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
           "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -87,8 +105,7 @@ def _macos_install(interval_hours: int) -> bool:
             <string>{PLIST_LABEL}</string>
             <key>ProgramArguments</key>
             <array>
-                <string>{ronin_exec}</string>
-                <string>search</string>
+{args_xml}
             </array>
             <key>StartInterval</key>
             <integer>{interval_seconds}</integer>
@@ -100,21 +117,23 @@ def _macos_install(interval_hours: int) -> bool:
             <true/>
         </dict>
         </plist>
-    """)
+    """
+    )
 
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PLIST_PATH.write_text(plist_xml)
-    logger.info(f"Wrote plist to {PLIST_PATH}")
+    plist_path = _get_plist_path()
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(plist_xml)
+    logger.info(f"Wrote plist to {plist_path}")
 
     # Unload first if already loaded (launchctl load is idempotent-ish but
     # prints a warning when the job is already loaded).
     subprocess.run(
-        ["launchctl", "unload", str(PLIST_PATH)],
+        ["launchctl", "unload", str(plist_path)],
         capture_output=True,
     )
 
     result = subprocess.run(
-        ["launchctl", "load", str(PLIST_PATH)],
+        ["launchctl", "load", str(plist_path)],
         capture_output=True,
         text=True,
     )
@@ -132,19 +151,20 @@ def _macos_uninstall() -> bool:
     Returns:
         True if the job was unloaded and plist deleted (or already absent).
     """
-    if not PLIST_PATH.exists():
+    plist_path = _get_plist_path()
+    if not plist_path.exists():
         logger.info("Plist does not exist; nothing to uninstall")
         return True
 
     result = subprocess.run(
-        ["launchctl", "unload", str(PLIST_PATH)],
+        ["launchctl", "unload", str(plist_path)],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         logger.warning(f"launchctl unload: {result.stderr.strip()}")
 
-    PLIST_PATH.unlink(missing_ok=True)
+    plist_path.unlink(missing_ok=True)
     logger.info("launchd job removed")
     return True
 
@@ -156,12 +176,13 @@ def _macos_status() -> dict:
         Dict with ``installed``, ``interval_hours``, and ``next_run`` keys.
     """
     info: dict = {"installed": False, "interval_hours": 0, "next_run": None}
+    plist_path = _get_plist_path()
 
-    if not PLIST_PATH.exists():
+    if not plist_path.exists():
         return info
 
     # Parse interval from plist text (avoids plistlib dep for simple read).
-    plist_text = PLIST_PATH.read_text()
+    plist_text = plist_path.read_text()
     match = re.search(
         r"<key>StartInterval</key>\s*<integer>(\d+)</integer>", plist_text
     )
@@ -194,8 +215,8 @@ def _windows_install(interval_hours: int) -> bool:
     Returns:
         True if the task was created successfully.
     """
-    ronin_exec = _resolve_ronin_executable()
-    command = f'"{ronin_exec}" search'
+    ronin_cmd = _resolve_ronin_command()
+    command = " ".join(f'"{part}"' for part in ronin_cmd + ["search"])
 
     result = subprocess.run(
         [
@@ -330,20 +351,22 @@ def _linux_install(interval_hours: int) -> bool:
     Returns:
         True if the crontab was updated successfully.
     """
-    ronin_exec = _resolve_ronin_executable()
-    log_dir = RONIN_HOME / "logs"
+    ronin_cmd = _resolve_ronin_command()
+    ronin_home = _get_ronin_home()
+    log_dir = ronin_home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    cmd_str = " ".join(ronin_cmd + ["search"])
     cron_line = (
         f"0 */{interval_hours} * * * "
-        f"{ronin_exec} search "
+        f"{cmd_str} "
         f">> {log_dir / 'cron_search.log'} 2>&1 "
         f"{CRONTAB_MARKER}"
     )
 
     existing = _read_crontab() or ""
     # Remove any previous ronin entry.
-    lines = [l for l in existing.splitlines() if CRONTAB_MARKER not in l]
+    lines = [ln for ln in existing.splitlines() if CRONTAB_MARKER not in ln]
     lines.append(cron_line)
 
     new_crontab = "\n".join(lines) + "\n"
@@ -365,7 +388,7 @@ def _linux_uninstall() -> bool:
         logger.info("No crontab found; nothing to uninstall")
         return True
 
-    lines = [l for l in existing.splitlines() if CRONTAB_MARKER not in l]
+    lines = [ln for ln in existing.splitlines() if CRONTAB_MARKER not in ln]
     new_crontab = "\n".join(lines) + "\n" if lines else ""
 
     if not _write_crontab(new_crontab):
@@ -415,6 +438,9 @@ def install_schedule(interval_hours: int = 2) -> bool:
     Raises:
         OSError: If the current platform is not supported.
     """
+    if interval_hours < 1:
+        raise ValueError(f"interval_hours must be >= 1, got {interval_hours}")
+
     plat = _current_platform()
     logger.info(f"Installing schedule on {plat} (every {interval_hours}h)")
 

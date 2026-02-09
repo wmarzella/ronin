@@ -1,7 +1,6 @@
 """AI response generation and processing functionality."""
 
 import json
-import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -21,14 +20,12 @@ except ImportError:
 class AIResponseHandler:
     """Handles AI response generation and processing for form elements."""
 
-    # Class-level cache for resume text
-    _resume_cache: Dict[str, str] = {}
-
     def __init__(
         self, ai_service: Optional[AIService] = None, config: Optional[Dict] = None
     ):
         """Initialize the AI response handler."""
         self.ai_service = ai_service or AIService()
+        self._resume_cache: Dict[str, str] = {}
 
         if config is None:
             from ronin.config import load_config
@@ -85,6 +82,43 @@ class AIResponseHandler:
 
         except Exception as e:
             logger.error(f"Error getting AI response: {e}")
+            return None
+
+    def get_ai_form_response_with_validation_context(
+        self,
+        element_info: Dict,
+        tech_stack,
+        job_description: Optional[str] = None,
+        has_validation_error: bool = False,
+    ) -> Optional[Dict]:
+        """Get AI-generated response for a form element with validation context.
+
+        Re-sends the request with a validation-error hint so the AI is more
+        aggressive about selecting at least one option.
+        """
+        try:
+            tech_stack = self._normalize_tech_stack(tech_stack)
+
+            resume_text = self._get_resume_text(tech_stack)
+            system_prompt = f"{self._system_prompt}\n\nMy resume: {resume_text}"
+            user_message = self._build_user_message(
+                element_info, job_description, has_validation_error=has_validation_error
+            )
+
+            response = self.ai_service.chat_completion(
+                system_prompt=system_prompt, user_message=user_message, temperature=0.3
+            )
+
+            if not response:
+                logger.error("No response received from OpenAI (validation retry)")
+                return None
+
+            return self._process_ai_response(
+                response, element_info, has_validation_error=has_validation_error
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting AI response (validation retry): {e}")
             return None
 
     def _normalize_tech_stack(self, tech_stack) -> str:

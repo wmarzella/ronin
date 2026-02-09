@@ -145,7 +145,7 @@ def generate_form_field_prompt(profile: Profile, keywords: list[str]) -> str:
     citizenship = wr.citizenship or "Not specified"
     visa = wr.visa_status or "Not specified"
     drivers = "Yes" if wr.has_drivers_license else "No"
-    police = "Yes" if wr.police_check else "No"
+    police = wr.police_check or "Not specified"
 
     clearances_held = (
         ", ".join(wr.security_clearances) if wr.security_clearances else "None"
