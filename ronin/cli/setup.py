@@ -314,14 +314,11 @@ class WorkRightsScreen(Screen):
 class ProfessionalScreen(Screen):
     """Job title, experience, salary, skills by category."""
 
-    SKILL_CATEGORIES = [
-        "cloud",
-        "languages",
-        "infrastructure",
-        "data",
-        "frameworks",
-        "tools",
-        "compliance",
+    DEFAULT_CATEGORIES = [
+        "core_skills",
+        "tools_and_software",
+        "certifications",
+        "interpersonal",
     ]
 
     def compose(self) -> ComposeResult:
@@ -333,7 +330,7 @@ class ProfessionalScreen(Screen):
             Label("Job title"),
             Input(
                 value=data.get("title", ""),
-                placeholder="Senior Software Engineer",
+                placeholder="e.g. Marketing Manager, Nurse, Software Engineer",
                 id="title",
             ),
             Label("Years of experience"),
@@ -345,13 +342,13 @@ class ProfessionalScreen(Screen):
             Label("Minimum salary"),
             Input(
                 value=str(data.get("salary_min", "")),
-                placeholder="120000",
+                placeholder="e.g. 60000",
                 id="salary_min",
             ),
             Label("Maximum salary"),
             Input(
                 value=str(data.get("salary_max", "")),
-                placeholder="160000",
+                placeholder="e.g. 90000",
                 id="salary_max",
             ),
             Label("Salary currency"),
@@ -366,18 +363,29 @@ class ProfessionalScreen(Screen):
                 id="salary_currency",
             ),
             Static(
-                "\n[bold]Skills[/bold] [dim](comma-separated per category)[/dim]\n",
+                "\n[bold]Skills[/bold] [dim](comma-separated per category)[/dim]\n"
+                "[dim]Define your own categories below. Add or rename "
+                "categories to fit your profession.[/dim]\n",
             ),
             *self._skill_widgets(skills),
+            Button(
+                "+ Add skill category",
+                id="add_skill_cat",
+                variant="default",
+            ),
             NavFooter(),
         )
         yield Footer()
 
     def _skill_widgets(self, skills: dict):
         widgets = []
-        for cat in self.SKILL_CATEGORIES:
+        # Use existing categories from profile, or defaults for new users
+        categories = list(skills.keys()) if skills else self.DEFAULT_CATEGORIES
+        self._current_categories = categories
+        for cat in categories:
             existing = ", ".join(skills.get(cat, []))
-            widgets.append(Label(cat.capitalize()))
+            display_name = cat.replace("_", " ").title()
+            widgets.append(Label(display_name))
             widgets.append(
                 TextArea(
                     text=existing,
@@ -386,9 +394,29 @@ class ProfessionalScreen(Screen):
             )
         return widgets
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "add_skill_cat":
+            # Add a new empty category with a generated name
+            idx = len(self._current_categories) + 1
+            new_cat = f"category_{idx}"
+            self._current_categories.append(new_cat)
+            container = self.query_one(ScrollableContainer)
+            display_name = f"Category {idx} (rename in profile.yaml)"
+            container.mount(Label(display_name), before="#add_skill_cat")
+            container.mount(
+                TextArea(text="", id=f"skill_{new_cat}"),
+                before="#add_skill_cat",
+            )
+        elif event.button.id == "nav_next":
+            self.app.wizard_data["professional"] = self._collect()
+            self.app.action_next_step()
+        elif event.button.id == "nav_back":
+            self.app.wizard_data["professional"] = self._collect()
+            self.app.action_prev_step()
+
     def _collect(self) -> dict:
         skills: dict[str, list[str]] = {}
-        for cat in self.SKILL_CATEGORIES:
+        for cat in self._current_categories:
             raw = self.query_one(f"#skill_{cat}", TextArea).text.strip()
             skills[cat] = [s.strip() for s in raw.split(",") if s.strip()]
 
@@ -408,14 +436,6 @@ class ProfessionalScreen(Screen):
             "salary_currency": self.query_one("#salary_currency", Select).value,
             "skills": skills,
         }
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "nav_next":
-            self.app.wizard_data["professional"] = self._collect()
-            self.app.action_next_step()
-        elif event.button.id == "nav_back":
-            self.app.wizard_data["professional"] = self._collect()
-            self.app.action_prev_step()
 
 
 @_register("preferences")
@@ -681,7 +701,7 @@ class SearchConfigScreen(Screen):
             Static("[bold]Search Configuration[/bold]\n", classes="section-header"),
             Label(
                 "Keywords (one per line, use Seek format: "
-                '\'"data engineer"-or-"data engineers"\')'
+                '\'"job title"-or-"job titles"\')'
             ),
             TextArea(
                 text="\n".join(data.get("keywords", [])),

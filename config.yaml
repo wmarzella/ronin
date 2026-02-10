@@ -17,9 +17,8 @@
 search:
   # Keywords to search for on job boards
   # Use Seek-style OR syntax: '"keyword one"-or-"keyword two"'
-  keywords:
-    - '"Software engineer"-or-"software engineers"'
-    - '"Senior software engineer"-or-"Senior software engineers"'
+  # Set your keywords during: ronin setup
+  keywords: []
 
   location: "All-Australia"                  # Job board location filter
   date_range: 2                              # Days to look back
@@ -34,8 +33,9 @@ search:
 application:
   # These override profile salary for form-filling (in case you want
   # to quote differently than your actual expectations)
-  salary_min: 120000
-  salary_max: 160000
+  # Set during: ronin setup
+  salary_min: 0
+  salary_max: 0
   batch_limit: 100                           # Max jobs to apply to per run (0 = unlimited)
 
 # -----------------------------------------------------------------------------

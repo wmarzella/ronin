@@ -1,12 +1,22 @@
-EXAMPLE PHILOSOPHY - Your Engineering Philosophy (Optional)
+EXAMPLE PHILOSOPHY - Your Professional Philosophy (Optional)
 =============================================================
 
-Replace this with your own engineering philosophy or approach.
+Replace this with your own professional philosophy or approach.
 This file is optional and can be referenced in prompts if you want
 your cover letters to reflect your professional values.
 
-Example:
+Examples:
+
+For an engineer:
 "I believe good engineering is about solving problems simply. The best
 system is the one that's easy to understand, easy to change, and does
-exactly what it needs to do - nothing more. I'd rather ship something
-that works and iterate than architect the perfect solution on paper."
+exactly what it needs to do."
+
+For a nurse:
+"Patient care isn't just clinical — it's about listening, anticipating
+needs, and making people feel heard. The best outcomes come from teams
+that communicate clearly and act quickly."
+
+For a project manager:
+"Good project management is about removing obstacles, not adding process.
+My job is to make sure the team can focus on the work that matters."

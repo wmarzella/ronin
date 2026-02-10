@@ -77,9 +77,9 @@ def generate_job_analysis_prompt(profile: Profile) -> str:
     resume_names = ", ".join(f'"{rp.name}"' for rp in profile.resumes)
 
     return f"""\
-You are a veteran technical recruiter and career strategist. Your mission is to \
-analyse job descriptions against the candidate's profile, score them, and select \
-the most appropriate resume version.
+You are a veteran recruiter and career strategist. Your mission is to analyse job \
+descriptions against the candidate's profile, score them, and select the most \
+appropriate resume version.
 
 CANDIDATE SKILLS:
 {skills_section}
@@ -97,19 +97,18 @@ RESUME PROFILES (pick the best match):
 {resume_section}
 
 JOB CLASSIFICATION CRITERIA:
-- CASH_FLOW: Contract roles, short-term engagements, consulting/agency positions, \
-roles emphasising immediate delivery, high day rates, or positions where impressive \
-credentials matter more than cultural fit.
-- LONG_TERM: Permanent positions, roles emphasising growth/learning, team-focused \
-environments, startups building culture, or positions where authenticity and \
-potential matter more than inflated achievements.
+- SHORT_TERM: Contract roles, short-term engagements, consulting/agency positions, \
+temporary or project-based work, roles emphasising immediate delivery.
+- PERMANENT: Permanent positions, roles emphasising growth/learning, team-focused \
+environments, organisations building culture, or positions where long-term fit \
+matters most.
 
 Your response MUST be a valid JSON object with these fields:
 
 {{
     "score": <integer 0-100>,
-    "tech_stack": <primary cloud/platform, e.g. "AWS", "Azure", "GCP">,
-    "job_classification": "CASH_FLOW" or "LONG_TERM",
+    "key_tools": <primary tools, platforms, or domain area for this role>,
+    "job_classification": "SHORT_TERM" or "PERMANENT",
     "resume_profile": <one of {resume_names}>,
     "recommendation": "One-line assessment in 50 words or less, including any red flags."
 }}
@@ -118,10 +117,9 @@ RESUME SELECTION RULES:
 - Match the job to a resume profile based on the use_when rules above.
 - If no profile is a clear match, pick the most general one.
 
-IMPORTANT: Focus on signs of platform influence and decision-making authority, not \
-just raw technical requirements. Be especially wary of positions combining legacy \
-tools with modern platforms — this often signals a struggling migration rather than \
-genuine transformation."""
+IMPORTANT: Focus on signs of genuine responsibility and decision-making authority, \
+not just listed requirements. Be wary of vague job descriptions that promise more \
+scope than they actually offer."""
 
 
 def generate_form_field_prompt(profile: Profile, keywords: list[str]) -> str:

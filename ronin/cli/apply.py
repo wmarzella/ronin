@@ -104,7 +104,7 @@ def main():
                         job_id=record.get("job_id", ""),
                         job_description=record.get("description", ""),
                         score=score,
-                        tech_stack=record.get("tech_stack", ""),
+                        key_tools=record.get("key_tools", ""),
                         company_name=record.get("company_name", ""),
                         title=record.get("title", ""),
                         resume_profile=record.get("resume_profile", "default"),

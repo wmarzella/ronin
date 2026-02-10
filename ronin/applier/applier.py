@@ -76,7 +76,7 @@ class SeekApplier(BaseApplier):
         )  # Uses Anthropic internally
         self.question_handler = QuestionAnswerHandler(self.ai_service, self.config)
         self.chrome_driver = ChromeDriver()
-        self.current_tech_stack = None
+        self.current_key_tools = None
         self.current_job_description = None
 
     @property
@@ -241,7 +241,7 @@ class SeekApplier(BaseApplier):
                     job_description=job_description,
                     title=title,
                     company_name=company_name,
-                    tech_stack=self.current_tech_stack or "aws",
+                    key_tools=self.current_key_tools or "general",
                     work_type=work_type,
                 )
 
@@ -458,7 +458,7 @@ class SeekApplier(BaseApplier):
                     future = executor.submit(
                         self.question_handler.get_ai_form_response_with_validation_context,
                         element_info,
-                        self.current_tech_stack,
+                        self.current_key_tools,
                         self.current_job_description,
                         True,
                     )
@@ -466,7 +466,7 @@ class SeekApplier(BaseApplier):
                     future = executor.submit(
                         self.question_handler.get_ai_form_response,
                         element_info,
-                        self.current_tech_stack,
+                        self.current_key_tools,
                         self.current_job_description,
                     )
                 future_to_idx[future] = idx
@@ -712,7 +712,7 @@ class SeekApplier(BaseApplier):
         job_id,
         job_description,
         score,
-        tech_stack,
+        key_tools,
         company_name,
         title,
         resume_profile="default",
@@ -723,7 +723,7 @@ class SeekApplier(BaseApplier):
             # Initialize chrome driver if not already initialized
             self.chrome_driver.initialize()
 
-            self.current_tech_stack = tech_stack
+            self.current_key_tools = key_tools
             self.current_job_description = job_description
 
             # Log to verify we're using the right company name
@@ -808,7 +808,7 @@ class SeekApplier(BaseApplier):
             return "APP_ERROR"
 
         finally:
-            self.current_tech_stack = None
+            self.current_key_tools = None
             self.current_job_description = None
 
     def cleanup(self):

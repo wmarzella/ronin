@@ -11,7 +11,7 @@ class BaseApplier(ABC):
         job_id: str,
         job_description: str,
         score: int,
-        tech_stack: str,
+        key_tools: str,
         company_name: str,
         title: str,
         resume_profile: str = "default",
@@ -23,7 +23,7 @@ class BaseApplier(ABC):
             job_id: The job board's unique identifier for this job.
             job_description: Full job description text.
             score: AI-assigned relevance score (0-100).
-            tech_stack: Primary tech stack identified by AI.
+            key_tools: Primary tools, platforms, or domain area identified by AI.
             company_name: Name of the hiring company.
             title: Job title.
             resume_profile: Name of the resume profile to use (from profile.yaml).

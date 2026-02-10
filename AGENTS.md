@@ -265,9 +265,9 @@ SQLite database at `~/.ronin/data/ronin.db`. Key tables:
 | title | TEXT | Job title |
 | description | TEXT | Full description |
 | score | INTEGER | AI score 0-100 |
-| tech_stack | TEXT | Primary tech stack |
+| key_tools | TEXT | Primary tools/platforms/domain |
 | recommendation | TEXT | AI recommendation |
-| job_classification | TEXT | CASH_FLOW or LONG_TERM |
+| job_classification | TEXT | SHORT_TERM or PERMANENT |
 | **resume_profile** | TEXT | **AI-selected resume profile name** |
 | status | TEXT | DISCOVERED, APPLIED, STALE, APP_ERROR |
 | url | TEXT | Job listing URL |

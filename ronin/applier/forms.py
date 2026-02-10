@@ -40,21 +40,21 @@ class QuestionAnswerHandler:
         self.validation_checker = ValidationChecker()
 
     def get_ai_form_response(
-        self, element_info: Dict, tech_stack: str, job_description: Optional[str] = None
+        self, element_info: Dict, key_tools: str, job_description: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Get AI-generated response for a form element.
 
         Args:
             element_info: Dictionary containing information about the form element
-            tech_stack: The tech stack for the job
+            key_tools: The key tools or domain for the job
             job_description: The job description text (optional)
 
         Returns:
             Dictionary containing the AI-generated response for the form element or None if generation failed.
         """
         return self.ai_handler.get_ai_form_response(
-            element_info, tech_stack, job_description
+            element_info, key_tools, job_description
         )
 
     def apply_ai_response(self, element_info: Dict, ai_response: Dict, driver):
@@ -98,7 +98,7 @@ class QuestionAnswerHandler:
     def get_ai_form_response_with_validation_context(
         self,
         element_info: Dict,
-        tech_stack: str,
+        key_tools: str,
         job_description: Optional[str] = None,
         has_validation_error: bool = False,
     ) -> Optional[Dict]:
@@ -107,7 +107,7 @@ class QuestionAnswerHandler:
 
         Args:
             element_info: Dictionary containing information about the form element
-            tech_stack: The tech stack for the job
+            key_tools: The key tools or domain for the job
             job_description: The job description text (optional)
             has_validation_error: Whether this field has a validation error
 
@@ -115,5 +115,5 @@ class QuestionAnswerHandler:
             Dictionary containing the AI-generated response for the form element or None if generation failed.
         """
         return self.ai_handler.get_ai_form_response_with_validation_context(
-            element_info, tech_stack, job_description, has_validation_error
+            element_info, key_tools, job_description, has_validation_error
         )

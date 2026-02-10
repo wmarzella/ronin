@@ -40,56 +40,62 @@ work_rights:
 # Professional Profile
 # -----------------------------------------------------------------------------
 professional:
-  title: "Software Engineer"                 # Your primary job title
+  title: "Your Job Title"                    # e.g. "Marketing Manager", "Registered Nurse", "Software Engineer"
   years_experience: 5
-  salary_min: 120000                         # Minimum acceptable salary
-  salary_max: 160000                         # Maximum / target salary
+  salary_min: 60000                          # Minimum acceptable salary (adjust to your industry)
+  salary_max: 90000                          # Maximum / target salary
   salary_currency: "AUD"                     # AUD, USD, GBP, EUR, etc.
 
-  # Skills - categorise your skills here. These are used for:
-  # - AI job analysis (matching your skills to job requirements)
-  # - Screening question answers
-  # - Resume-to-job matching
+  # Skills — define your own categories to fit your profession.
+  # The AI uses these for job matching, scoring, and screening question answers.
+  #
+  # Examples for different professions:
+  #
+  # Software engineer:
+  #   languages: ["Python", "JavaScript"]
+  #   cloud: ["AWS", "Azure"]
+  #   tools: ["Git", "Docker"]
+  #
+  # Registered nurse:
+  #   clinical: ["Patient assessment", "IV therapy", "Wound care"]
+  #   certifications: ["BLS", "ACLS", "PALS"]
+  #   specialisations: ["Emergency", "ICU"]
+  #
+  # Marketing manager:
+  #   platforms: ["Google Ads", "HubSpot", "Salesforce"]
+  #   skills: ["SEO", "Content strategy", "Analytics"]
+  #   certifications: ["Google Analytics", "HubSpot Inbound"]
+  #
+  # Project manager:
+  #   methodologies: ["Agile", "Scrum", "Waterfall"]
+  #   tools: ["Jira", "Confluence", "MS Project"]
+  #   certifications: ["PMP", "PRINCE2", "SAFe"]
+  #
   skills:
-    cloud:
-      - "AWS"
-      - "Azure"
-    languages:
-      - "Python"
-      - "JavaScript"
-      - "TypeScript"
-      - "SQL"
-    infrastructure:
-      - "Docker"
-      - "Terraform"
-      - "CI/CD (GitHub Actions)"
-    data:
-      - "PostgreSQL"
-      - "Redis"
-      - "ETL pipelines"
-    frameworks:
-      - "React"
-      - "FastAPI"
-      - "Django"
-    tools:
-      - "Git"
-      - "Linux"
-      - "Jira"
-    compliance: []                           # e.g. ["HIPAA", "PCI DSS", "SOC 2"]
+    core_skills:
+      - "Skill 1"
+      - "Skill 2"
+    tools_and_software:
+      - "Tool 1"
+      - "Tool 2"
+    certifications: []                       # e.g. ["PMP", "CPA", "BLS"]
+    interpersonal:
+      - "Team leadership"
+      - "Communication"
 
-  # Job preferences - what makes a good/bad job FOR YOU
+  # Job preferences — what makes a good/bad job FOR YOU
   # The AI uses these to score and rank jobs
   preferences:
     high_value_signals:
-      - "Modern tech stack with cloud-native architecture"
-      - "Engineering-led culture (not agency/consultancy)"
-      - "Role involves architecture decisions, not just ticket work"
+      - "Clear role scope and responsibilities"
+      - "Growth opportunities and professional development"
+      - "Role involves decision-making, not just execution"
       - "Small-to-medium team where I can have impact"
     red_flags:
       - "Vague or buzzword-heavy job descriptions"
-      - "Legacy systems with no modernisation plan"
-      - "Unrealistic requirements (10+ years in a 5-year-old technology)"
+      - "Unrealistic experience requirements for the seniority level"
       - "Signs of understaffing ('wear many hats', 'flexible role')"
+      - "No mention of team structure or support"
     preferred_work_types:                    # "contract", "full-time", "part-time"
       - "full-time"
       - "contract"
@@ -120,14 +126,14 @@ resumes:
       description: "General purpose resume for most applications"
 
   # Example: add a second resume for contract work
-  # - name: "contract_senior"
+  # - name: "contract"
   #   file: "contract.txt"
   #   seek_resume_id: ""
   #   use_when:
   #     job_types:
   #       - "contract"
   #       - "consulting"
-  #     description: "Emphasises enterprise results and cost savings for contract roles"
+  #     description: "Emphasises relevant experience for contract/consulting roles"
 
 # -----------------------------------------------------------------------------
 # Cover Letter Configuration
@@ -147,8 +153,8 @@ cover_letter:
     - "No dramatic reframes: 'That's not failure. That's data.'"
 
   # How to frame cover letters for different engagement types
-  contract_framing: "Problem-first. What's broken? You've seen it before. Emphasise speed to impact."
-  fulltime_framing: "Future-oriented. Where are they going? Show you think about systems, not just tasks."
+  contract_framing: "Problem-first. What's the challenge? You've handled similar before. Emphasise speed to impact."
+  fulltime_framing: "Future-oriented. Where are they going? Show you think about systems and processes, not just tasks."
 
 # -----------------------------------------------------------------------------
 # AI Provider Configuration

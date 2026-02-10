@@ -79,7 +79,7 @@ class SQLiteManager:
                 title TEXT NOT NULL,
                 description TEXT,
                 score INTEGER DEFAULT 0,
-                tech_stack TEXT,
+                key_tools TEXT,
                 recommendation TEXT,
                 overview TEXT,
                 url TEXT,
@@ -95,7 +95,7 @@ class SQLiteManager:
                 recruiter_id INTEGER,
                 open_job INTEGER DEFAULT 0,
                 last_modified TEXT,
-                job_classification TEXT DEFAULT 'CASH_FLOW',
+                job_classification TEXT DEFAULT 'SHORT_TERM',
                 resume_profile TEXT DEFAULT 'default',
                 FOREIGN KEY (company_id) REFERENCES companies(id)
             )
@@ -120,8 +120,9 @@ class SQLiteManager:
 
         # Migrations: add columns if they don't exist on older databases
         for col, default in [
-            ("job_classification", "'CASH_FLOW'"),
+            ("job_classification", "'SHORT_TERM'"),
             ("resume_profile", "'default'"),
+            ("key_tools", "''"),
         ]:
             try:
                 cursor.execute(f"SELECT {col} FROM jobs LIMIT 1")
@@ -130,6 +131,18 @@ class SQLiteManager:
                     f"ALTER TABLE jobs ADD COLUMN {col} TEXT DEFAULT {default}"
                 )
                 logger.info(f"Migrated database: added {col} column")
+
+        # Migrate data from old tech_stack column to key_tools
+        try:
+            cursor.execute("SELECT tech_stack FROM jobs LIMIT 1")
+            # Old column exists — copy data to new column if key_tools is empty
+            cursor.execute(
+                "UPDATE jobs SET key_tools = tech_stack "
+                "WHERE key_tools IS NULL OR key_tools = ''"
+            )
+            logger.info("Migrated tech_stack data to key_tools column")
+        except sqlite3.OperationalError:
+            pass  # tech_stack column doesn't exist (fresh DB)
 
         self.conn.commit()
         logger.debug("Database schema initialized")
@@ -211,7 +224,7 @@ class SQLiteManager:
             cursor = self.conn.cursor()
             cursor.execute(
                 """INSERT INTO jobs (
-                    job_id, title, description, score, tech_stack, recommendation,
+                    job_id, title, description, score, key_tools, recommendation,
                     overview, url, source, quick_apply, created_at, pay, type,
                     location, status, keywords, company_id, job_classification,
                     resume_profile
@@ -221,7 +234,8 @@ class SQLiteManager:
                     job_data.get("title", ""),
                     job_data.get("description", ""),
                     analysis_data.get("score", 0),
-                    analysis_data.get("tech_stack", "N/A"),
+                    analysis_data.get("key_tools")
+                    or analysis_data.get("tech_stack", "N/A"),
                     analysis_data.get("recommendation", ""),
                     analysis_data.get("overview", ""),
                     url,
@@ -234,7 +248,7 @@ class SQLiteManager:
                     "DISCOVERED",
                     ", ".join(analysis_data.get("tech_keywords", [])),
                     company_id,
-                    analysis_data.get("job_classification", "CASH_FLOW"),
+                    analysis_data.get("job_classification", "SHORT_TERM"),
                     analysis_data.get("resume_profile", "default"),
                 ),
             )
@@ -300,9 +314,9 @@ class SQLiteManager:
                     "URL": job_dict.get("url"),
                     "Description": job_dict.get("description"),
                     "Score": job_dict.get("score", 0),
-                    "Tech Stack": job_dict.get("tech_stack", ""),
+                    "Key Tools": job_dict.get("key_tools", ""),
                     "Job Classification": job_dict.get(
-                        "job_classification", "CASH_FLOW"
+                        "job_classification", "SHORT_TERM"
                     ),
                     "Resume Profile": job_dict.get("resume_profile", "default"),
                 }
@@ -350,7 +364,7 @@ class SQLiteManager:
         allowed_fields = {
             "status",
             "score",
-            "tech_stack",
+            "key_tools",
             "recommendation",
             "overview",
             "last_modified",

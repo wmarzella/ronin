@@ -45,7 +45,7 @@ class CoverLetterGenerator:
         job_description: str,
         title: str,
         company_name: str,
-        tech_stack: str,
+        key_tools: str,
         resume_text: str = None,
         work_type: str = None,
     ) -> Optional[Dict[str, Any]]:
@@ -56,7 +56,7 @@ class CoverLetterGenerator:
             job_description: The full job description text
             title: The job title
             company_name: The company name
-            tech_stack: The tech stack for the job
+            key_tools: The key tools or domain for the job
             resume_text: Optional resume text to include. If None, will be loaded from appropriate files.
             work_type: The work type (e.g., "Contract/Temp", "Full time")
 
@@ -74,7 +74,7 @@ class CoverLetterGenerator:
                     resume_text = highlights
                 else:
                     resume_text = (
-                        self._get_resume_text(tech_stack)
+                        self._get_resume_text(key_tools)
                         if resume_text is None
                         else resume_text
                     )
@@ -110,7 +110,7 @@ class CoverLetterGenerator:
                     resume_text = highlights_path.read_text()
                 else:
                     resume_text = (
-                        self._get_resume_text(tech_stack)
+                        self._get_resume_text(key_tools)
                         if resume_text is None
                         else resume_text
                     )
@@ -141,28 +141,28 @@ class CoverLetterGenerator:
             logger.error(f"Failed to generate cover letter: {e}")
             return None
 
-    def _get_resume_text(self, tech_stack: str) -> str:
+    def _get_resume_text(self, key_tools: str) -> str:
         """Get the resume text based on tech stack or job classification."""
         if self.profile is not None:
             try:
-                return self.profile.get_resume_text(tech_stack)
+                return self.profile.get_resume_text(key_tools)
             except (KeyError, FileNotFoundError) as e:
                 logger.debug(f"Profile resume lookup failed, using legacy path: {e}")
 
         # Legacy hardcoded path
-        tech_stack = tech_stack.lower() if tech_stack else "c"
+        key_tools = key_tools.lower() if key_tools else "default"
         base_path = Path(__file__).parent.parent.parent / "assets" / "cv"
 
         # Try exact match first
-        cv_path = base_path / f"{tech_stack}.txt"
+        cv_path = base_path / f"{key_tools}.txt"
         if cv_path.exists():
             logger.debug(f"Using resume: {cv_path.name}")
             return cv_path.read_text()
 
-        # Default to C resume
-        default_path = base_path / "c.txt"
+        # Default resume
+        default_path = base_path / "default.txt"
         if default_path.exists():
-            logger.debug("Using default C resume")
+            logger.debug("Using default resume")
             return default_path.read_text()
 
         logger.error("No resume file found!")

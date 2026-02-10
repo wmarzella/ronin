@@ -46,17 +46,17 @@ class AIResponseHandler:
         self._system_prompt = self._build_system_prompt()
 
     def get_ai_form_response(
-        self, element_info: Dict, tech_stack, job_description: Optional[str] = None
+        self, element_info: Dict, key_tools, job_description: Optional[str] = None
     ) -> Optional[Dict]:
         """Get AI-generated response for a form element."""
         try:
-            tech_stack = self._normalize_tech_stack(tech_stack)
+            key_tools = self._normalize_key_tools(key_tools)
 
             import time
 
             prompt_start = time.time()
 
-            resume_text = self._get_resume_text(tech_stack)
+            resume_text = self._get_resume_text(key_tools)
             system_prompt = f"{self._system_prompt}\n\nMy resume: {resume_text}"
             user_message = self._build_user_message(element_info, job_description)
             logger.debug(f"Built prompts in {time.time() - prompt_start:.3f}s")
@@ -87,7 +87,7 @@ class AIResponseHandler:
     def get_ai_form_response_with_validation_context(
         self,
         element_info: Dict,
-        tech_stack,
+        key_tools,
         job_description: Optional[str] = None,
         has_validation_error: bool = False,
     ) -> Optional[Dict]:
@@ -97,9 +97,9 @@ class AIResponseHandler:
         aggressive about selecting at least one option.
         """
         try:
-            tech_stack = self._normalize_tech_stack(tech_stack)
+            key_tools = self._normalize_key_tools(key_tools)
 
-            resume_text = self._get_resume_text(tech_stack)
+            resume_text = self._get_resume_text(key_tools)
             system_prompt = f"{self._system_prompt}\n\nMy resume: {resume_text}"
             user_message = self._build_user_message(
                 element_info, job_description, has_validation_error=has_validation_error
@@ -121,12 +121,12 @@ class AIResponseHandler:
             logger.error(f"Error getting AI response (validation retry): {e}")
             return None
 
-    def _normalize_tech_stack(self, tech_stack) -> str:
-        """Normalize tech_stack to a lowercase string."""
-        if isinstance(tech_stack, list):
-            return " ".join(tech_stack).lower() if tech_stack else ""
-        elif isinstance(tech_stack, str):
-            return tech_stack.lower()
+    def _normalize_key_tools(self, key_tools) -> str:
+        """Normalize key_tools to a lowercase string."""
+        if isinstance(key_tools, list):
+            return " ".join(key_tools).lower() if key_tools else ""
+        elif isinstance(key_tools, str):
+            return key_tools.lower()
         return ""
 
     def _build_system_prompt(self) -> str:
@@ -138,8 +138,8 @@ class AIResponseHandler:
 
         # Legacy fallback
         salary_config = self.config.get("application", {})
-        salary_min = salary_config.get("salary_min", 150000)
-        salary_max = salary_config.get("salary_max", 200000)
+        salary_min = salary_config.get("salary_min", 0)
+        salary_max = salary_config.get("salary_max", 0)
 
         return FORM_FIELD_SYSTEM_PROMPT.format(
             keywords=keywords,
@@ -253,20 +253,20 @@ class AIResponseHandler:
             return False
         return True
 
-    def _get_resume_text(self, tech_stack: str) -> str:
+    def _get_resume_text(self, key_tools: str) -> str:
         """Get resume text, using cache to avoid repeated file reads."""
-        tech_stack = tech_stack.lower() if tech_stack else "c"
+        key_tools = key_tools.lower() if key_tools else "default"
 
         # Check cache first
-        if tech_stack in self._resume_cache:
-            return self._resume_cache[tech_stack]
+        if key_tools in self._resume_cache:
+            return self._resume_cache[key_tools]
 
         # Profile-based lookup
         if self.profile is not None:
             try:
-                text = self.profile.get_resume_text(tech_stack)
-                self._resume_cache[tech_stack] = text
-                logger.debug(f"Loaded resume from profile: {tech_stack}")
+                text = self.profile.get_resume_text(key_tools)
+                self._resume_cache[key_tools] = text
+                logger.debug(f"Loaded resume from profile: {key_tools}")
                 return text
             except (KeyError, FileNotFoundError) as e:
                 logger.debug(f"Profile resume lookup failed, using legacy path: {e}")
@@ -275,20 +275,19 @@ class AIResponseHandler:
         base_path = Path(__file__).parent.parent.parent / "assets" / "cv"
 
         # Try exact match first
-        cv_path = base_path / f"{tech_stack}.txt"
+        cv_path = base_path / f"{key_tools}.txt"
         if cv_path.exists():
             text = cv_path.read_text()
-            self._resume_cache[tech_stack] = text
+            self._resume_cache[key_tools] = text
             logger.debug(f"Loaded and cached resume: {cv_path.name}")
             return text
 
         # Try default resume
-        default_path = base_path / "c.txt"
+        default_path = base_path / "default.txt"
         if default_path.exists():
             text = default_path.read_text()
-            self._resume_cache[tech_stack] = text  # Cache under original key too
-            self._resume_cache["c"] = text
-            logger.debug("Using default C resume")
+            self._resume_cache[key_tools] = text
+            logger.debug("Using default resume")
             return text
 
         logger.error("No resume file found!")
