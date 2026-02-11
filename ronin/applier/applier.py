@@ -78,6 +78,7 @@ class SeekApplier(BaseApplier):
         self.chrome_driver = ChromeDriver()
         self.current_key_tools = None
         self.current_job_description = None
+        self.current_resume_profile = None
 
     @property
     def board_name(self) -> str:
@@ -241,7 +242,7 @@ class SeekApplier(BaseApplier):
                     job_description=job_description,
                     title=title,
                     company_name=company_name,
-                    key_tools=self.current_key_tools or "general",
+                    key_tools=self.current_resume_profile or "default",
                     work_type=work_type,
                 )
 
@@ -458,7 +459,7 @@ class SeekApplier(BaseApplier):
                     future = executor.submit(
                         self.question_handler.get_ai_form_response_with_validation_context,
                         element_info,
-                        self.current_key_tools,
+                        self.current_resume_profile or "default",
                         self.current_job_description,
                         True,
                     )
@@ -466,7 +467,7 @@ class SeekApplier(BaseApplier):
                     future = executor.submit(
                         self.question_handler.get_ai_form_response,
                         element_info,
-                        self.current_key_tools,
+                        self.current_resume_profile or "default",
                         self.current_job_description,
                     )
                 future_to_idx[future] = idx
@@ -725,6 +726,7 @@ class SeekApplier(BaseApplier):
 
             self.current_key_tools = key_tools
             self.current_job_description = job_description
+            self.current_resume_profile = resume_profile
 
             # Log to verify we're using the right company name
             logger.info(
@@ -810,6 +812,7 @@ class SeekApplier(BaseApplier):
         finally:
             self.current_key_tools = None
             self.current_job_description = None
+            self.current_resume_profile = None
 
     def cleanup(self):
         """Clean up resources - call this when completely done with all applications"""
