@@ -20,7 +20,7 @@ search:
   # Set your keywords during: ronin setup
   keywords: []
 
-  location: "All-Australia"                  # Job board location filter
+  location: "Victoria-VIC"                    # Job board location filter (e.g. "All-Australia", "Victoria-VIC", "Melbourne-VIC")
   date_range: 2                              # Days to look back
 
   salary:
@@ -84,9 +84,13 @@ boards:
 # -----------------------------------------------------------------------------
 browser:
   # "system" = use installed Chrome, "testing" = use Chrome for Testing
+  # "camofox" = use camofox-browser server (for ECS/VPS headless deployments)
   mode: "system"
   # Override path (leave empty for auto-detection)
   chrome_path: ""
+  # Camofox-browser server URL (only used when mode = "camofox")
+  # Override with CAMOFOX_URL env var
+  camofox_url: "http://localhost:9377"
 
 # -----------------------------------------------------------------------------
 # Schedule

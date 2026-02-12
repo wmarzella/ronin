@@ -75,3 +75,51 @@ def get_applier(board_name: str) -> BaseApplier:
 
         return SeekApplier()
     raise ValueError(f"Unsupported job board: {board_name}. Supported: seek")
+
+
+def get_browser_driver():
+    """Get the appropriate browser driver based on config.
+
+    Returns ChromeDriver for local/desktop use, CamofoxDriver for
+    headless server environments (ECS, VPS).
+
+    Config:
+        browser.mode = "system" | "testing" | "camofox"
+        browser.camofox_url = "http://localhost:9377"
+
+    Environment:
+        CAMOFOX_URL overrides browser.camofox_url
+        BROWSER_MODE overrides browser.mode
+    """
+    import os
+
+    mode = os.environ.get("BROWSER_MODE", "").lower()
+
+    if not mode:
+        try:
+            from ronin.config import load_config
+
+            config = load_config()
+            mode = config.get("browser", {}).get("mode", "system").lower()
+        except Exception:
+            mode = "system"
+
+    if mode == "camofox":
+        from ronin.applier.camofox import CamofoxDriver
+
+        camofox_url = os.environ.get("CAMOFOX_URL")
+        if not camofox_url:
+            try:
+                from ronin.config import load_config
+
+                config = load_config()
+                camofox_url = config.get("browser", {}).get("camofox_url")
+            except Exception:
+                pass
+
+        return CamofoxDriver(camofox_url=camofox_url)
+
+    # Default: local Chrome
+    from ronin.applier.browser import ChromeDriver
+
+    return ChromeDriver()

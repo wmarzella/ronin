@@ -91,6 +91,11 @@ class SeekScraper(BaseScraper):
         keywords = keyword_group.replace('"', "%22")
 
         location = self.search_config.get("location", "All Australia").replace(" ", "-")
+        # Strip leading "in-" if the user already included it in config,
+        # since we always prepend "in-" in the URL path.
+        if location.lower().startswith("in-"):
+            location = location[3:]
+
         salary_config = self.search_config.get("salary", {})
         salary_min = salary_config.get("min", 0)
         salary_max = salary_config.get("max", 999999)
@@ -107,7 +112,9 @@ class SeekScraper(BaseScraper):
         }
 
         param_str = "&".join(f"{k}={v}" for k, v in params.items())
-        return f"{self.base_url}/{keywords}-jobs/in-{location}?{param_str}"
+        url = f"{self.base_url}/{keywords}-jobs/in-{location}?{param_str}"
+        logger.debug(f"Built search URL: {url}")
+        return url
 
     def extract_job_info(self, job_element: BeautifulSoup) -> Optional[Dict[str, Any]]:
         """Extract job preview information from a job card."""
