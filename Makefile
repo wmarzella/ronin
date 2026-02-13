@@ -1,3 +1,6 @@
+PYTHON := venv/bin/python3
+PIP := venv/bin/pip
+
 .PHONY: help install setup search apply status test format lint check clean
 
 # Ronin - AI-Powered Job Application Automation
@@ -24,36 +27,36 @@ help:
 
 install:
 	@echo "Installing dependencies..."
-	@pip install -r requirements.txt
+	@$(PIP) install -r requirements.txt
 	@echo ""
 	@echo "Done! Run 'make setup' to configure Ronin."
 
 setup:
-	@python -m ronin.cli.main setup
+	@$(PYTHON) -m ronin.cli.main setup
 
 search:
-	@python -m ronin.cli.main search
+	@$(PYTHON) -m ronin.cli.main search
 
 apply:
-	@python -m ronin.cli.main apply
+	@$(PYTHON) -m ronin.cli.main apply
 
 status:
-	@python -m ronin.cli.main status
+	@$(PYTHON) -m ronin.cli.main status
 
 test:
 	@echo "Testing imports..."
-	@python -c "from ronin.config import load_config, get_ronin_home; from ronin.profile import load_profile, Profile; from ronin.scraper import SeekScraper; from ronin.analyzer import JobAnalyzerService; from ronin.applier import SeekApplier; from ronin.applier.base import BaseApplier, get_applier; from ronin.db import SQLiteManager; from ronin.ai import AIService; from ronin.prompts.generator import generate_job_analysis_prompt; from ronin.scheduler import get_schedule_status; print('All imports successful!')"
+	@$(PYTHON) -c "from ronin.config import load_config, get_ronin_home; from ronin.profile import load_profile, Profile; from ronin.scraper import SeekScraper; from ronin.analyzer import JobAnalyzerService; from ronin.applier import SeekApplier; from ronin.applier.base import BaseApplier, get_applier; from ronin.db import SQLiteManager; from ronin.ai import AIService; from ronin.prompts.generator import generate_job_analysis_prompt; from ronin.scheduler import get_schedule_status; print('All imports successful!')"
 	@echo "Testing Python file parsing..."
-	@python -c "import ast, os; [ast.parse(open(os.path.join(r,f)).read()) for r,_,fs in os.walk('ronin') for f in fs if f.endswith('.py')]; print('All files parse OK!')"
+	@$(PYTHON) -c "import ast, os; [ast.parse(open(os.path.join(r,f)).read()) for r,_,fs in os.walk('ronin') for f in fs if f.endswith('.py')]; print('All files parse OK!')"
 
 format:
 	@echo "Formatting code..."
-	@black --line-length 88 ronin/
+	@venv/bin/black --line-length 88 ronin/
 	@echo "Done!"
 
 lint:
 	@echo "Linting code..."
-	@flake8 --max-line-length 88 --extend-ignore E203,W503,E231,E221,E222,E501 ronin/
+	@venv/bin/flake8 --max-line-length 88 --extend-ignore E203,W503,E231,E221,E222,E501 ronin/
 	@echo "Done!"
 
 check: format lint
