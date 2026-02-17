@@ -357,6 +357,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Do not include the local spool DB in the backup",
     )
 
+    db_migrate = db_sub.add_parser(
+        "migrate",
+        help="Backfill applications/archetypes for existing users",
+    )
+    db_migrate.add_argument(
+        "--only",
+        type=str,
+        default="all",
+        choices=["all", "applications", "archetypes"],
+        help="Which migration to run (default: all)",
+    )
+    db_migrate.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Max rows to process per step (default: 0 = no limit)",
+    )
+    db_migrate.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Compute what would change without writing",
+    )
+    db_migrate.add_argument(
+        "--enable-embeddings",
+        action="store_true",
+        help="Use embedding-assisted archetype scoring (slower)",
+    )
+
     # -- schedule ------------------------------------------------------------
     schedule_parser = subparsers.add_parser(
         "schedule", help="Manage scheduled automation"
@@ -648,13 +676,22 @@ def main() -> None:
         _handle_schedule(args, parser)
 
     elif args.command == "db":
-        from ronin.cli.db_cmd import backup_db
+        from ronin.cli.db_cmd import backup_db, migrate_db
 
         action = getattr(args, "db_action", None)
         if action == "backup":
             rc = backup_db(
                 output_dir=getattr(args, "output_dir", None),
                 include_spool=not bool(getattr(args, "no_spool", False)),
+            )
+            if rc != 0:
+                sys.exit(rc)
+        elif action == "migrate":
+            rc = migrate_db(
+                only=str(getattr(args, "only", "all")),
+                limit=int(getattr(args, "limit", 0) or 0),
+                dry_run=bool(getattr(args, "dry_run", False)),
+                enable_embeddings=bool(getattr(args, "enable_embeddings", False)),
             )
             if rc != 0:
                 sys.exit(rc)

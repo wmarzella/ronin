@@ -1018,6 +1018,228 @@ class PostgresManager:
             self.conn.rollback()
             return False
 
+    def backfill_applications_from_applied_jobs(
+        self,
+        limit: int = 0,
+        dry_run: bool = False,
+    ) -> Dict[str, int]:
+        """Insert missing application rows for jobs already marked APPLIED.
+
+        Idempotent: inserts only rows missing from `applications`.
+        """
+
+        stats = {
+            "applied_jobs": 0,
+            "applications_total": 0,
+            "missing": 0,
+            "inserted": 0,
+            "dry_run": 1 if dry_run else 0,
+        }
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'APPLIED'")
+            stats["applied_jobs"] = int(cursor.fetchone()[0])
+
+            cursor.execute("SELECT COUNT(*) FROM applications")
+            stats["applications_total"] = int(cursor.fetchone()[0])
+
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM jobs j
+                WHERE j.status = 'APPLIED'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM applications a WHERE a.job_id = j.job_id
+                  )
+            """
+            )
+            stats["missing"] = int(cursor.fetchone()[0])
+
+            if dry_run or stats["missing"] == 0:
+                return stats
+
+            query = (
+                "SELECT j.*, c.name AS company_name "
+                "FROM jobs j LEFT JOIN companies c ON j.company_id = c.id "
+                "WHERE j.status = 'APPLIED' "
+                "AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.job_id) "
+                "ORDER BY j.created_at DESC"
+            )
+            params: list = []
+            if limit > 0:
+                query += " LIMIT %s"
+                params.append(int(limit))
+
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+
+            columns = [
+                "job_id",
+                "seek_job_id",
+                "title",
+                "job_title",
+                "description",
+                "job_description_text",
+                "company_name",
+                "source",
+                "url",
+                "date_scraped",
+                "date_applied",
+                "job_type",
+                "day_rate_or_salary",
+                "seniority_level",
+                "tech_stack_tags",
+                "search_keyword_origin",
+                "archetype_scores",
+                "archetype_primary",
+                "embedding_vector",
+                "resume_profile",
+                "resume_archetype",
+                "resume_variant_sent",
+                "resume_commit_hash",
+                "profile_state_at_application",
+                "application_batch_id",
+                "key_tools",
+                "matching_keyword",
+                "job_classification",
+                "applied_at",
+                "outcome_stage",
+                "market_intelligence_only",
+                "created_at",
+                "updated_at",
+                "last_modified",
+            ]
+
+            placeholders = ", ".join(["%s"] * len(columns))
+            insert_sql = (
+                f"INSERT INTO applications ({', '.join(columns)}) "
+                f"VALUES ({placeholders}) "
+                "ON CONFLICT (job_id) DO NOTHING"
+            )
+
+            now = datetime.now().isoformat()
+            inserted = 0
+
+            for row in rows:
+                job = dict(row)
+                applied_at = job.get("last_modified") or job.get("created_at") or now
+                date_scraped = (
+                    job.get("created_at")[:10]
+                    if isinstance(job.get("created_at"), str)
+                    else None
+                )
+                date_applied = applied_at[:10] if isinstance(applied_at, str) else None
+
+                source = (job.get("source") or "").strip().lower()
+                seek_job_id = job.get("job_id") if source == "seek" else None
+
+                cursor.execute(
+                    insert_sql,
+                    (
+                        job.get("job_id"),
+                        seek_job_id,
+                        job.get("title") or "",
+                        job.get("title") or "",
+                        job.get("description"),
+                        job.get("description"),
+                        job.get("company_name"),
+                        job.get("source"),
+                        job.get("url"),
+                        date_scraped,
+                        date_applied,
+                        job.get("job_type") or job.get("type") or "unknown",
+                        job.get("day_rate_or_salary") or job.get("pay") or "",
+                        job.get("seniority_level"),
+                        job.get("tech_stack_tags"),
+                        job.get("matching_keyword") or "",
+                        job.get("archetype_scores"),
+                        job.get("archetype_primary"),
+                        job.get("embedding_vector"),
+                        job.get("resume_profile") or "default",
+                        job.get("resume_archetype") or "adaptation",
+                        None,
+                        job.get("resume_commit_hash"),
+                        job.get("resume_archetype") or "adaptation",
+                        job.get("application_batch_id"),
+                        job.get("key_tools"),
+                        job.get("matching_keyword"),
+                        job.get("job_classification"),
+                        applied_at,
+                        "applied",
+                        int(bool(job.get("market_intelligence_only") or 0)),
+                        applied_at,
+                        now,
+                        now,
+                    ),
+                )
+                if cursor.rowcount:
+                    inserted += 1
+
+            self.conn.commit()
+            stats["inserted"] = inserted
+            return stats
+        except Exception as e:
+            logger.error(f"Error backfilling applications: {e}")
+            self.conn.rollback()
+            return stats
+
+    def get_applications_missing_archetype(self, limit: int = 0) -> List[Dict]:
+        """Return application rows missing archetype_primary."""
+        try:
+            cursor = self.conn.cursor()
+            query = (
+                "SELECT * FROM applications "
+                "WHERE (archetype_primary IS NULL OR btrim(archetype_primary) = '') "
+                "  AND ((job_description_text IS NOT NULL AND btrim(job_description_text) <> '') "
+                "       OR (description IS NOT NULL AND btrim(description) <> '')) "
+                "ORDER BY applied_at DESC"
+            )
+            params: list = []
+            if limit > 0:
+                query += " LIMIT %s"
+                params.append(int(limit))
+
+            cursor.execute(query, tuple(params))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error reading applications missing archetype: {e}")
+            return []
+
+    def update_application_archetype(
+        self,
+        application_id: int,
+        archetype_primary: str,
+        archetype_scores: Dict,
+    ) -> bool:
+        """Update archetype fields on an application record."""
+        try:
+            cursor = self.conn.cursor()
+            now = datetime.now().isoformat()
+            cursor.execute(
+                """
+                UPDATE applications
+                SET archetype_primary = %s,
+                    archetype_scores = %s,
+                    updated_at = %s,
+                    last_modified = %s
+                WHERE id = %s
+            """,
+                (
+                    str(archetype_primary or "").strip().lower() or None,
+                    json.dumps(archetype_scores or {}),
+                    now,
+                    now,
+                    int(application_id),
+                ),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating application archetype {application_id}: {e}")
+            self.conn.rollback()
+            return False
+
     def get_applications(
         self,
         limit: int = 500,
