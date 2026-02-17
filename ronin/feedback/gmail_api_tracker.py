@@ -59,6 +59,11 @@ OUTCOME_RULES = {
             "your application was viewed",
             "has viewed your application",
             "viewed your profile",
+            # Seek notification phrasing (often includes a job link)
+            "reviewing applications",
+            "new activity in jobs you applied for",
+            "profile views",
+            "your profile is being discovered",
         ],
         "min_matches": 1,
     },
@@ -68,6 +73,10 @@ OUTCOME_RULES = {
             "thank you for applying",
             "we have received",
             "application submitted",
+            # Common ATS / direct phrasing
+            "your recent application",
+            "your application to the",
+            "your application for the",
         ],
         "min_matches": 1,
     },
@@ -457,6 +466,10 @@ class GmailOutcomeTracker:
         sender_address = parsed_email.get("sender_address", "")
         sender_domain = parsed_email.get("sender_domain", "")
         known = self.db_manager.lookup_known_sender(sender_address)
+        outcome = (
+            str(parsed_email.get("outcome_classification") or "other").strip().lower()
+        )
+        domain_root = self._extract_root_domain(sender_domain)
 
         candidates = list(applications)
         if known and known.get("company_name"):
@@ -466,29 +479,66 @@ class GmailOutcomeTracker:
                 for app in candidates
                 if self._fuzzy_match(app.get("company_name", ""), known_company) > 0.7
             ]
-        else:
-            domain_root = self._extract_root_domain(sender_domain)
-            if domain_root:
-                candidates = [
-                    app
-                    for app in candidates
-                    if self._fuzzy_match(app.get("company_name", ""), domain_root) > 0.5
-                ]
+        elif domain_root:
+            domain_filtered = [
+                app
+                for app in candidates
+                if self._fuzzy_match(app.get("company_name", ""), domain_root) > 0.5
+            ]
+            if domain_filtered:
+                candidates = domain_filtered
+            elif outcome != "other":
+                # Outcome signal but no domain match; fall back to global scoring.
+                candidates = list(applications)
 
-        if not candidates:
+        if not candidates and outcome == "other":
             return MatchResult(status="unmatched", method="unmatched")
 
-        body_blob = (
-            (parsed_email.get("subject", "") or "")
-            + " "
-            + (parsed_email.get("body_text", "") or "")
-        )
+        subject = str(parsed_email.get("subject", "") or "")
+        body_text = str(parsed_email.get("body_text", "") or "")
+        body_snippet = body_text[:800]
+
+        # Keep a full-text lowercase blob for keyword/tech-tag overlap.
+        body_blob_lower = f"{subject} {body_text}".lower()
         scored: List[Tuple[Dict, float]] = []
+
+        sent_dt = None
+        email_date = parsed_email.get("date_received", "")
+        try:
+            sent_dt = datetime.fromisoformat(str(email_date).replace("Z", "+00:00"))
+        except Exception:
+            sent_dt = None
+
         for app in candidates:
             title = app.get("job_title") or app.get("title") or ""
-            title_sim = self._token_jaccard(body_blob, title)
-            if title_sim > 0.2:
-                scored.append((app, title_sim))
+            title_sim = max(
+                self._token_jaccard(subject, title),
+                self._token_jaccard(body_snippet, title),
+            )
+            company_sim = 0.0
+            if domain_root:
+                company_sim = self._fuzzy_match(
+                    app.get("company_name", ""), domain_root
+                )
+
+            score = title_sim + (company_sim * 0.15)
+
+            applied_date = app.get("date_applied")
+            if sent_dt and applied_date:
+                try:
+                    applied = datetime.fromisoformat(
+                        str(applied_date) + "T00:00:00+00:00"
+                    )
+                    days_diff = (sent_dt - applied).days
+                    if 0 <= days_diff <= 30:
+                        score += 0.2
+                    elif 30 < days_diff <= 60:
+                        score += 0.1
+                except Exception:
+                    pass
+
+            if score > 0:
+                scored.append((app, score))
 
         for idx, (app, score) in enumerate(scored):
             tech_tags = self._safe_json_load(app.get("tech_stack_tags"), [])
@@ -497,29 +547,23 @@ class GmailOutcomeTracker:
                 for tag in tech_tags
                 if isinstance(tag, str)
                 and tag.lower()
-                and tag.lower() in body_blob.lower()
+                and tag.lower() in body_blob_lower
             )
             scored[idx] = (app, score + overlap * 0.1)
 
-        email_date = parsed_email.get("date_received", "")
-        for idx, (app, score) in enumerate(scored):
-            applied_date = app.get("date_applied")
-            if not applied_date:
-                continue
-            try:
-                sent = datetime.fromisoformat(email_date.replace("Z", "+00:00"))
-                applied = datetime.fromisoformat(str(applied_date) + "T00:00:00+00:00")
-                days_diff = (sent - applied).days
-            except Exception:
-                continue
-            if 0 <= days_diff <= 30:
-                score += 0.2
-            elif 30 < days_diff <= 60:
-                score += 0.1
-            scored[idx] = (app, score)
-
         scored.sort(key=lambda pair: pair[1], reverse=True)
         if not scored:
+            if outcome != "other":
+                recent = sorted(
+                    applications,
+                    key=lambda row: str(row.get("date_applied") or ""),
+                    reverse=True,
+                )[:3]
+                return MatchResult(
+                    status="manual_review",
+                    candidates=[(app, 0.0) for app in recent],
+                    method="manual_fallback",
+                )
             return MatchResult(status="unmatched", method="unmatched")
 
         best = scored[0]
@@ -531,11 +575,13 @@ class GmailOutcomeTracker:
                 candidates=scored[:3],
                 method="domain_title_date",
             )
-        return MatchResult(
-            status="manual_review",
-            candidates=scored[:3],
-            method="manual",
-        )
+        if outcome != "other":
+            return MatchResult(
+                status="manual_review",
+                candidates=scored[:3],
+                method="manual",
+            )
+        return MatchResult(status="unmatched", method="unmatched")
 
     def _extract_root_domain(self, sender_domain: str) -> str:
         domain = (sender_domain or "").lower().strip()

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from loguru import logger
 from rich.console import Console
 from rich.prompt import Prompt
@@ -120,7 +122,15 @@ def show_feedback_report(min_samples: int = 2) -> int:
         )
 
         by_outcome = outcome_stats.get("by_outcome", {})
-        for outcome in ["PENDING", "REJECTION", "CALLBACK", "INTERVIEW", "OFFER"]:
+        for outcome in [
+            "PENDING",
+            "ACKNOWLEDGED",
+            "VIEWED",
+            "REJECTION",
+            "INTERVIEW",
+            "OFFER",
+            "GHOST",
+        ]:
             if outcome in by_outcome:
                 overview.add_row(f"  {outcome}", str(by_outcome[outcome]))
 
@@ -270,7 +280,7 @@ def list_sender_ignores(limit: int = 200) -> int:
         db.close()
 
 
-def review_manual_matches(limit: int = 25) -> int:
+def review_manual_matches(limit: int = 25, auto_resolve: bool = False) -> int:
     """Interactive workflow to resolve ambiguous email->application matches."""
     load_env()
     _configure_logging()
@@ -290,6 +300,77 @@ def review_manual_matches(limit: int = 25) -> int:
         resolved = 0
         skipped = 0
 
+        interactive = False
+        try:
+            interactive = sys.stdin.isatty()
+        except Exception:
+            interactive = False
+
+        if not interactive:
+            table = Table(title="Manual Review (Non-Interactive)", border_style="dim")
+            table.add_column("Email", style="dim", justify="right")
+            table.add_column("Outcome", style="magenta")
+            table.add_column("From")
+            table.add_column("Subject")
+            table.add_column("Top App", style="cyan", justify="right")
+            table.add_column("Score", style="dim", justify="right")
+
+            pending_rows = 0
+            for email in emails:
+                email_id = int(email.get("id"))
+                outcome = (email.get("outcome_classification") or "other").strip()
+                sender = (email.get("sender_address") or "").strip()
+                subject = (email.get("subject") or "").strip()
+
+                match = matcher._match_email_to_application(
+                    email, applications
+                )  # noqa: SLF001
+
+                if (
+                    auto_resolve
+                    and match.status == "auto_matched"
+                    and match.application
+                ):
+                    ok = db.resolve_manual_review_email_match(
+                        email_parsed_id=email_id,
+                        application_id=int(match.application.get("id")),
+                        match_method=str(match.method or "manual"),
+                    )
+                    if ok:
+                        resolved += 1
+                        continue
+
+                candidates = match.candidates or []
+                top_app_id = ""
+                top_score = ""
+                if candidates:
+                    top_app_id = str(candidates[0][0].get("id") or "")
+                    top_score = f"{float(candidates[0][1]):.2f}"
+
+                pending_rows += 1
+                table.add_row(
+                    str(email_id),
+                    outcome,
+                    sender,
+                    subject[:48],
+                    top_app_id,
+                    top_score,
+                )
+
+            if resolved:
+                console.print(f"[green]Auto-resolved:[/green] {resolved}")
+
+            if pending_rows:
+                console.print(table)
+                console.print(
+                    "\n[dim]Run `ronin feedback review` in an interactive terminal to resolve remaining matches.[/dim]"
+                )
+            else:
+                console.print(
+                    "[green]No remaining emails require manual review.[/green]"
+                )
+            return 0
+
         for email in emails:
             email_id = int(email.get("id"))
             sender = (email.get("sender_address") or "").strip()
@@ -308,6 +389,23 @@ def review_manual_matches(limit: int = 25) -> int:
                 email, applications
             )  # noqa: SLF001
             candidates = match.candidates or []
+
+            if auto_resolve and match.status == "auto_matched" and match.application:
+                ok = db.resolve_manual_review_email_match(
+                    email_parsed_id=email_id,
+                    application_id=int(match.application.get("id")),
+                    match_method=str(match.method or "manual"),
+                )
+                if ok:
+                    console.print(
+                        f"[green]Auto-resolved[/green] email #{email_id} -> application {match.application.get('id')}"
+                    )
+                    resolved += 1
+                else:
+                    console.print(f"[red]Failed[/red] to resolve email #{email_id}")
+                    skipped += 1
+                continue
+
             if not candidates:
                 console.print("[yellow]No match candidates found.[/yellow]")
                 skipped += 1
@@ -332,10 +430,13 @@ def review_manual_matches(limit: int = 25) -> int:
                 )
             console.print(table)
 
-            choice = Prompt.ask(
-                "Select 1-3, type an application id, (s)kip, or (q)uit",
-                default="s",
-            ).strip()
+            try:
+                choice = Prompt.ask(
+                    "Select 1-3, type an application id, (s)kip, or (q)uit",
+                    default="s",
+                ).strip()
+            except EOFError:
+                choice = "q"
 
             if choice.lower() in {"q", "quit"}:
                 break

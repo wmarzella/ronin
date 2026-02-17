@@ -126,7 +126,7 @@ tracking:
     enabled: false                           # If true, `ronin run` syncs Gmail outcomes after apply
     mailbox: "INBOX"
     lookback_days: 45
-    query: "newer_than:1d"
+    query: "newer_than:45d application"
     auth_mode: "auto"                        # auto | local_server | console
     credentials_path: "credentials.json"
     token_path: "~/.ronin/gmail_token.json"

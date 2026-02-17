@@ -268,6 +268,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=25,
         help="Max manual-review emails to show (default: 25)",
     )
+    feedback_review.add_argument(
+        "--auto",
+        action="store_true",
+        help="Auto-resolve any emails with a single clear match",
+    )
 
     feedback_ignore = feedback_sub.add_parser(
         "ignore",
@@ -566,7 +571,10 @@ def main() -> None:
             if rc != 0:
                 sys.exit(rc)
         elif args.feedback_action == "review":
-            rc = review_manual_matches(limit=int(getattr(args, "limit", 25) or 25))
+            rc = review_manual_matches(
+                limit=int(getattr(args, "limit", 25) or 25),
+                auto_resolve=bool(getattr(args, "auto", False)),
+            )
             if rc != 0:
                 sys.exit(rc)
         elif args.feedback_action == "ignore":
