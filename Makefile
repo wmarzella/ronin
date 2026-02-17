@@ -1,5 +1,5 @@
 PYTHON := venv/bin/python3
-PIP := venv/bin/pip
+PIP := $(PYTHON) -m pip
 ARCH ?= builder
 
 .PHONY: help install setup search apply apply-queue apply-batch apply-status apply-sync apply-review apply-ghosts apply-drift apply-versions run feedback-sync feedback-report feedback-review status worker worker-once test format lint check clean
