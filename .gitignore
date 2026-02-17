@@ -77,3 +77,14 @@ credentials.json
 # Local labeling outputs (generated)
 labels_sample*.jsonl
 *.disagreements.jsonl
+
+# Terraform (infrastructure)
+infra/terraform/**/.terraform/
+infra/terraform/**/*.tfstate
+infra/terraform/**/*.tfstate.*
+infra/terraform/**/crash.log
+infra/terraform/**/crash.*.log
+infra/terraform/**/.terraformrc
+infra/terraform/**/terraform.rc
+infra/terraform/**/.terraform.tfvars
+infra/terraform/**/*.tfvars
