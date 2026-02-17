@@ -1038,15 +1038,19 @@ class PostgresManager:
 
         try:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'APPLIED'")
-            stats["applied_jobs"] = int(cursor.fetchone()[0])
+            cursor.execute(
+                "SELECT COUNT(*) AS count FROM jobs WHERE status = 'APPLIED'"
+            )
+            row = cursor.fetchone() or {}
+            stats["applied_jobs"] = int(row.get("count", 0) or 0)
 
-            cursor.execute("SELECT COUNT(*) FROM applications")
-            stats["applications_total"] = int(cursor.fetchone()[0])
+            cursor.execute("SELECT COUNT(*) AS count FROM applications")
+            row = cursor.fetchone() or {}
+            stats["applications_total"] = int(row.get("count", 0) or 0)
 
             cursor.execute(
                 """
-                SELECT COUNT(*)
+                SELECT COUNT(*) AS count
                 FROM jobs j
                 WHERE j.status = 'APPLIED'
                   AND NOT EXISTS (
@@ -1054,7 +1058,8 @@ class PostgresManager:
                   )
             """
             )
-            stats["missing"] = int(cursor.fetchone()[0])
+            row = cursor.fetchone() or {}
+            stats["missing"] = int(row.get("count", 0) or 0)
 
             if dry_run or stats["missing"] == 0:
                 return stats

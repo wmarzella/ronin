@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 from loguru import logger
 
@@ -74,9 +74,9 @@ def _mask_password_in_dsn(dsn: str) -> tuple[str, Dict[str, str]]:
     if raw.startswith("postgresql://") or raw.startswith("postgres://"):
         parsed = urlparse(raw)
         if parsed.password:
-            extra_env["PGPASSWORD"] = parsed.password
+            extra_env["PGPASSWORD"] = unquote(parsed.password)
         # Rebuild netloc without password.
-        username = parsed.username or ""
+        username = unquote(parsed.username or "")
         host = parsed.hostname or ""
         port = f":{parsed.port}" if parsed.port else ""
         auth = f"{username}@" if username else ""
