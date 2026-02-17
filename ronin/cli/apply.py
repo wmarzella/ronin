@@ -14,9 +14,10 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from ronin.application_queue import ApplicationQueueService
 from ronin.applier import SeekApplier
 from ronin.config import get_ronin_home, load_config, load_env
-from ronin.db import SQLiteManager
+from ronin.db import get_db_manager
 
 console = Console()
 
@@ -54,8 +55,23 @@ def main():
 
     try:
         config = load_config()
-        applier = SeekApplier()
-        db_manager = SQLiteManager()
+
+        # Best-effort: flush any locally spooled rows into Postgres first.
+        try:
+            from ronin.spool_sync import sync_spool_to_remote
+
+            sync_spool_to_remote(config=config, dry_run=False)
+        except Exception:
+            pass
+
+        db_manager = get_db_manager(config=config)
+        queue_service = ApplicationQueueService(config=config, db_manager=db_manager)
+        queue_service.recompute_queue(limit=0)
+        variant_payloads = queue_service.refresh_resume_variants()
+        variant_commits = {
+            key: payload.get("current_commit_hash")
+            for key, payload in variant_payloads.items()
+        }
 
         # Get batch limit from config (0 = unlimited)
         batch_limit = config.get("application", {}).get("batch_limit", 100)
@@ -72,6 +88,16 @@ def main():
             return
 
         console.print(f"[green]✓[/green] Found {len(job_records)} jobs to apply to\n")
+
+        # Only initialize the applier/browser once we know there's work to do.
+        applier = SeekApplier()
+
+        with console.status("[bold green]Verifying Seek login session..."):
+            if not applier.login():
+                raise RuntimeError(
+                    "Seek login required (no active session detected). "
+                    "Run `ronin apply` interactively once to refresh the session."
+                )
 
         # Track results
         successful = 0
@@ -94,6 +120,7 @@ def main():
                 job_title = record.get("title", "N/A")[:35]
                 company = record.get("company_name", "N/A")[:20]
                 score = record.get("score", 0)
+                record_id = record.get("id")
 
                 progress.update(
                     task, description=f"[cyan]{job_title} @ {company} (score: {score})"
@@ -111,11 +138,33 @@ def main():
                         work_type=record.get("work_type", ""),
                     )
 
-                    record_id = record.get("id")
-
                     if result == "APPLIED":
                         successful += 1
                         db_manager.update_record(record_id, {"status": "APPLIED"})
+                        archetype = (
+                            record.get("archetype_primary")
+                            or record.get("resume_archetype")
+                            or "builder"
+                        )
+                        db_manager.mark_job_applied(
+                            record_id=int(record_id),
+                            batch_id=None,
+                            profile_state=str(archetype),
+                            resume_variant_sent=str(archetype),
+                            resume_commit_hash=variant_commits.get(str(archetype)),
+                        )
+
+                        submission_payload = dict(record)
+                        submission_payload.update(
+                            {
+                                "resume_variant_sent": str(archetype),
+                                "resume_commit_hash": variant_commits.get(
+                                    str(archetype)
+                                ),
+                                "profile_state_at_application": str(archetype),
+                            }
+                        )
+                        db_manager.record_application_submission(submission_payload)
                         console.print(f"  [green]✓[/green] {job_title}")
                     elif result == "STALE":
                         stale += 1

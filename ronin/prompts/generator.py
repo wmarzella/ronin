@@ -40,7 +40,25 @@ def _format_resume_profiles_section(profile: Profile) -> str:
     for i, rp in enumerate(profile.resumes, 1):
         job_types = ", ".join(rp.use_when.job_types) if rp.use_when.job_types else "any"
         desc = rp.use_when.description or "No additional guidance"
-        lines.append(f'{i}. "{rp.name}" — Use for: {job_types}. {desc}')
+        archetype = (
+            rp.archetype.value if hasattr(rp.archetype, "value") else str(rp.archetype)
+        )
+        signal = rp.hiring_signal or "General execution and delivery credibility"
+        title_patterns = (
+            ", ".join(rp.role_title_patterns) if rp.role_title_patterns else ""
+        )
+        keyword_bias = ", ".join(rp.keyword_bias) if rp.keyword_bias else ""
+
+        line = (
+            f'{i}. "{rp.name}" (archetype: {archetype}) — '
+            f"Signal: {signal}. Use for: {job_types}."
+        )
+        if title_patterns:
+            line += f" Role-title hints: {title_patterns}."
+        if keyword_bias:
+            line += f" Keyword hints: {keyword_bias}."
+        line += f" {desc}"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -115,6 +133,7 @@ Your response MUST be a valid JSON object with these fields:
 
 RESUME SELECTION RULES:
 - Match the job to a resume profile based on the use_when rules above.
+- Respect archetype fit: expansion, consolidation, adaptation, aspiration.
 - If no profile is a clear match, pick the most general one.
 
 IMPORTANT: Focus on signs of genuine responsibility and decision-making authority, \

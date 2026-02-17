@@ -87,8 +87,7 @@ class SeekApplier(BaseApplier):
     def login(self) -> bool:
         """Log in to Seek via the ChromeDriver."""
         self.chrome_driver.initialize()
-        self.chrome_driver.login_seek()
-        return self.chrome_driver.is_logged_in
+        return self.chrome_driver.login_seek()
 
     def _navigate_to_job(self, job_id: str):
         """Navigate to the specific job application page."""
@@ -132,7 +131,13 @@ class SeekApplier(BaseApplier):
         except Exception as e:
             raise Exception(f"Failed to navigate to job {job_id}: {str(e)}")
 
-    def _handle_resume(self, job_id: str, resume_profile: str = "default"):
+    def _handle_resume(
+        self,
+        job_id: str,
+        resume_profile: str = "default",
+        title: str = "",
+        work_type: str = "",
+    ):
         """Handle resume selection for Seek applications based on resume profile name."""
         try:
             WebDriverWait(self.chrome_driver.driver, 10).until(
@@ -143,18 +148,29 @@ class SeekApplier(BaseApplier):
 
             # Look up seek_resume_id from the profile
             resume_id = None
+            selected_profile_name = resume_profile
             if self.profile and self.profile.resumes:
                 try:
                     rp = self.profile.get_resume(resume_profile)
                     resume_id = rp.seek_resume_id
+                    selected_profile_name = rp.name
                     logger.info(
                         f"Job {job_id}: using resume profile '{resume_profile}' "
                         f"(seek_resume_id={resume_id})"
                     )
                 except KeyError:
-                    # Profile name not found, fall back to first available resume
-                    rp = self.profile.resumes[0]
+                    # Profile name not found, use deterministic listing-based fallback.
+                    try:
+                        rp = self.profile.recommend_resume_for_listing(
+                            job_title=title,
+                            job_description=self.current_job_description or "",
+                            work_type=work_type,
+                        )
+                    except Exception:
+                        rp = self.profile.resumes[0]
+
                     resume_id = rp.seek_resume_id
+                    selected_profile_name = rp.name
                     logger.warning(
                         f"Job {job_id}: resume profile '{resume_profile}' not found, "
                         f"falling back to '{rp.name}' (seek_resume_id={resume_id})"
@@ -172,6 +188,7 @@ class SeekApplier(BaseApplier):
                 )
             )
             resume_select.select_by_value(resume_id)
+            self.current_resume_profile = selected_profile_name
 
         except Exception as e:
             raise Exception(f"Failed to handle resume for job {job_id}: {str(e)}")
@@ -734,7 +751,10 @@ class SeekApplier(BaseApplier):
             )
 
             if not self.chrome_driver.is_logged_in:
-                self.chrome_driver.login_seek()
+                if not self.chrome_driver.login_seek():
+                    raise RuntimeError(
+                        "Seek login required (no active session detected)"
+                    )
 
             navigation_result = self._navigate_to_job(job_id)
             if navigation_result == "APPLIED":
@@ -742,7 +762,12 @@ class SeekApplier(BaseApplier):
             if navigation_result == "STALE":
                 return "STALE"
 
-            self._handle_resume(job_id, resume_profile)
+            self._handle_resume(
+                job_id=job_id,
+                resume_profile=resume_profile,
+                title=title,
+                work_type=work_type or "",
+            )
             cover_letter_success = self._handle_cover_letter(
                 score=score,
                 job_description=job_description,

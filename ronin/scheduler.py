@@ -16,8 +16,20 @@ from typing import Optional
 
 from loguru import logger
 
-PLIST_LABEL = "com.ronin.search"
-WINDOWS_TASK_NAME = "Ronin Job Search"
+DEFAULT_SCHEDULE_COMMAND = "search"
+
+
+def _plist_label(command: str) -> str:
+    return f"com.ronin.{command}"
+
+
+def _windows_task_name(command: str) -> str:
+    title = command.capitalize()
+    return f"Ronin {title}" if command != "search" else "Ronin Job Search"
+
+
+# Keep this intentionally narrow; scheduled runs should be predictable.
+ALLOWED_SCHEDULE_COMMANDS = {"search", "run", "apply"}
 
 
 def _get_ronin_home() -> Path:
@@ -25,9 +37,10 @@ def _get_ronin_home() -> Path:
     return Path(os.environ.get("RONIN_HOME", str(Path.home() / ".ronin")))
 
 
-def _get_plist_path() -> Path:
+def _get_plist_path(command: str) -> Path:
     """Get the launchd plist path (macOS only, safe to call on any platform)."""
-    return Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
+    label = _plist_label(command)
+    return Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
 
 
 CRONTAB_MARKER = "# ronin-scheduled-search"
@@ -47,6 +60,20 @@ def _resolve_ronin_command() -> list:
     if which_ronin:
         return [str(Path(which_ronin).resolve())]
     return [sys.executable, "-m", "ronin.cli.main"]
+
+
+def _parse_hhmm(value: str) -> tuple[int, int]:
+    """Parse HH:MM to (hour, minute)."""
+    match = re.match(r"^(\d{1,2}):(\d{2})$", value.strip())
+    if not match:
+        raise ValueError(f"Invalid time format: {value!r} (expected HH:MM)")
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour < 0 or hour > 23:
+        raise ValueError(f"Hour out of range in {value!r}")
+    if minute < 0 or minute > 59:
+        raise ValueError(f"Minute out of range in {value!r}")
+    return hour, minute
 
 
 def _current_platform() -> str:
@@ -73,7 +100,12 @@ def _current_platform() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _macos_install(interval_hours: int) -> bool:
+def _macos_install(
+    interval_hours: Optional[int],
+    command: str,
+    at_time: Optional[str],
+    weekdays_only: bool,
+) -> bool:
     """Write a launchd plist and load it.
 
     Args:
@@ -83,7 +115,7 @@ def _macos_install(interval_hours: int) -> bool:
         True if the plist was written and loaded successfully.
     """
     ronin_cmd = _resolve_ronin_command()
-    interval_seconds = interval_hours * 3600
+    interval_seconds = (interval_hours or 0) * 3600
 
     ronin_home = _get_ronin_home()
     log_dir = ronin_home / "logs"
@@ -91,8 +123,14 @@ def _macos_install(interval_hours: int) -> bool:
 
     # Build ProgramArguments XML entries
     args_xml = "\n".join(
-        f"            <string>{part}</string>" for part in ronin_cmd + ["search"]
+        f"            <string>{part}</string>" for part in ronin_cmd + [command]
     )
+
+    label = _plist_label(command)
+    # If Ronin is being run from a source checkout (not installed as a package),
+    # `python -m ronin.cli.main ...` requires the project root on sys.path.
+    # Setting WorkingDirectory makes scheduled runs behave like manual runs.
+    working_dir = str(Path.cwd())
 
     plist_xml = textwrap.dedent(
         f"""\
@@ -102,17 +140,18 @@ def _macos_install(interval_hours: int) -> bool:
         <plist version="1.0">
         <dict>
             <key>Label</key>
-            <string>{PLIST_LABEL}</string>
+            <string>{label}</string>
+            <key>WorkingDirectory</key>
+            <string>{working_dir}</string>
             <key>ProgramArguments</key>
             <array>
-{args_xml}
+ {args_xml}
             </array>
-            <key>StartInterval</key>
-            <integer>{interval_seconds}</integer>
+{_macos_schedule_xml(interval_seconds, at_time, weekdays_only)}
             <key>StandardOutPath</key>
-            <string>{log_dir / "launchd_search.log"}</string>
+            <string>{log_dir / f"launchd_{command}.log"}</string>
             <key>StandardErrorPath</key>
-            <string>{log_dir / "launchd_search.log"}</string>
+            <string>{log_dir / f"launchd_{command}.log"}</string>
             <key>RunAtLoad</key>
             <true/>
         </dict>
@@ -120,17 +159,14 @@ def _macos_install(interval_hours: int) -> bool:
     """
     )
 
-    plist_path = _get_plist_path()
+    plist_path = _get_plist_path(command)
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(plist_xml)
     logger.info(f"Wrote plist to {plist_path}")
 
     # Unload first if already loaded (launchctl load is idempotent-ish but
     # prints a warning when the job is already loaded).
-    subprocess.run(
-        ["launchctl", "unload", str(plist_path)],
-        capture_output=True,
-    )
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
 
     result = subprocess.run(
         ["launchctl", "load", str(plist_path)],
@@ -145,60 +181,51 @@ def _macos_install(interval_hours: int) -> bool:
     return True
 
 
-def _macos_uninstall() -> bool:
-    """Unload and remove the launchd plist.
+def _macos_schedule_xml(
+    interval_seconds: int, at_time: Optional[str], weekdays_only: bool
+) -> str:
+    """Return the launchd schedule XML block."""
+    if at_time:
+        hour, minute = _parse_hhmm(at_time)
+        if weekdays_only:
+            entries = "\n".join(
+                """            <dict>
+                <key>Weekday</key>
+                <integer>{weekday}</integer>
+                <key>Hour</key>
+                <integer>{hour}</integer>
+                <key>Minute</key>
+                <integer>{minute}</integer>
+            </dict>""".format(
+                    weekday=wd, hour=hour, minute=minute
+                )
+                for wd in range(1, 6)
+            )
+            return textwrap.dedent(
+                f"""\
+                    <key>StartCalendarInterval</key>
+                    <array>
+{entries}
+                    </array>"""
+            ).rstrip()
 
-    Returns:
-        True if the job was unloaded and plist deleted (or already absent).
-    """
-    plist_path = _get_plist_path()
-    if not plist_path.exists():
-        logger.info("Plist does not exist; nothing to uninstall")
-        return True
+        return textwrap.dedent(
+            f"""\
+                <key>StartCalendarInterval</key>
+                <dict>
+                    <key>Hour</key>
+                    <integer>{hour}</integer>
+                    <key>Minute</key>
+                    <integer>{minute}</integer>
+                </dict>"""
+        ).rstrip()
 
-    result = subprocess.run(
-        ["launchctl", "unload", str(plist_path)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        logger.warning(f"launchctl unload: {result.stderr.strip()}")
-
-    plist_path.unlink(missing_ok=True)
-    logger.info("launchd job removed")
-    return True
-
-
-def _macos_status() -> dict:
-    """Query launchd for the current job status.
-
-    Returns:
-        Dict with ``installed``, ``interval_hours``, and ``next_run`` keys.
-    """
-    info: dict = {"installed": False, "interval_hours": 0, "next_run": None}
-    plist_path = _get_plist_path()
-
-    if not plist_path.exists():
-        return info
-
-    # Parse interval from plist text (avoids plistlib dep for simple read).
-    plist_text = plist_path.read_text()
-    match = re.search(
-        r"<key>StartInterval</key>\s*<integer>(\d+)</integer>", plist_text
-    )
-    interval_seconds = int(match.group(1)) if match else 0
-
-    # Check if the job is actually loaded.
-    result = subprocess.run(
-        ["launchctl", "list", PLIST_LABEL],
-        capture_output=True,
-        text=True,
-    )
-    loaded = result.returncode == 0
-
-    info["installed"] = loaded
-    info["interval_hours"] = interval_seconds // 3600 if interval_seconds else 0
-    return info
+    # Default: interval schedule
+    return textwrap.dedent(
+        f"""\
+            <key>StartInterval</key>
+            <integer>{interval_seconds}</integer>"""
+    ).rstrip()
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +233,12 @@ def _macos_status() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _windows_install(interval_hours: int) -> bool:
+def _windows_install(
+    interval_hours: Optional[int],
+    command: str,
+    at_time: Optional[str],
+    weekdays_only: bool,
+) -> bool:
     """Create a Windows scheduled task via schtasks.
 
     Args:
@@ -216,20 +248,31 @@ def _windows_install(interval_hours: int) -> bool:
         True if the task was created successfully.
     """
     ronin_cmd = _resolve_ronin_command()
-    command = " ".join(f'"{part}"' for part in ronin_cmd + ["search"])
+    command_str = " ".join(f'"{part}"' for part in ronin_cmd + [command])
+
+    task_name = _windows_task_name(command)
+
+    if at_time:
+        hour, minute = _parse_hhmm(at_time)
+        st = f"{hour:02d}:{minute:02d}"
+        if weekdays_only:
+            schedule_args = ["/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", st]
+        else:
+            schedule_args = ["/SC", "DAILY", "/ST", st]
+    else:
+        if not interval_hours:
+            raise ValueError("interval_hours is required when at_time is not set")
+        schedule_args = ["/SC", "HOURLY", "/MO", str(interval_hours)]
 
     result = subprocess.run(
         [
             "schtasks",
             "/Create",
-            "/SC",
-            "HOURLY",
-            "/MO",
-            str(interval_hours),
+            *schedule_args,
             "/TN",
-            WINDOWS_TASK_NAME,
+            task_name,
             "/TR",
-            command,
+            command_str,
             "/F",  # force overwrite if exists
         ],
         capture_output=True,
@@ -239,18 +282,19 @@ def _windows_install(interval_hours: int) -> bool:
         logger.error(f"schtasks /Create failed: {result.stderr.strip()}")
         return False
 
-    logger.info(f"Windows scheduled task '{WINDOWS_TASK_NAME}' created")
+    logger.info(f"Windows scheduled task '{task_name}' created")
     return True
 
 
-def _windows_uninstall() -> bool:
+def _windows_uninstall(command: str) -> bool:
     """Delete the Windows scheduled task.
 
     Returns:
         True if the task was deleted (or did not exist).
     """
+    task_name = _windows_task_name(command)
     result = subprocess.run(
-        ["schtasks", "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"],
+        ["schtasks", "/Delete", "/TN", task_name, "/F"],
         capture_output=True,
         text=True,
     )
@@ -263,11 +307,11 @@ def _windows_uninstall() -> bool:
         logger.error(f"schtasks /Delete failed: {stderr}")
         return False
 
-    logger.info(f"Windows scheduled task '{WINDOWS_TASK_NAME}' deleted")
+    logger.info(f"Windows scheduled task '{task_name}' deleted")
     return True
 
 
-def _windows_status() -> dict:
+def _windows_status(command: str) -> dict:
     """Query Task Scheduler for the current task status.
 
     Returns:
@@ -275,8 +319,10 @@ def _windows_status() -> dict:
     """
     info: dict = {"installed": False, "interval_hours": 0, "next_run": None}
 
+    task_name = _windows_task_name(command)
+
     result = subprocess.run(
-        ["schtasks", "/Query", "/TN", WINDOWS_TASK_NAME, "/FO", "LIST", "/V"],
+        ["schtasks", "/Query", "/TN", task_name, "/FO", "LIST", "/V"],
         capture_output=True,
         text=True,
     )
@@ -342,7 +388,12 @@ def _write_crontab(text: str) -> bool:
     return True
 
 
-def _linux_install(interval_hours: int) -> bool:
+def _linux_install(
+    interval_hours: Optional[int],
+    command: str,
+    at_time: Optional[str],
+    weekdays_only: bool,
+) -> bool:
     """Add a crontab entry for the search job.
 
     Args:
@@ -356,11 +407,20 @@ def _linux_install(interval_hours: int) -> bool:
     log_dir = ronin_home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd_str = " ".join(ronin_cmd + ["search"])
+    cmd_str = " ".join(ronin_cmd + [command])
+    if at_time:
+        hour, minute = _parse_hhmm(at_time)
+        dow = "1-5" if weekdays_only else "*"
+        cron_spec = f"{minute} {hour} * * {dow}"
+    else:
+        if not interval_hours:
+            raise ValueError("interval_hours is required when at_time is not set")
+        cron_spec = f"0 */{interval_hours} * * *"
+
     cron_line = (
-        f"0 */{interval_hours} * * * "
+        f"{cron_spec} "
         f"{cmd_str} "
-        f">> {log_dir / 'cron_search.log'} 2>&1 "
+        f">> {log_dir / f'cron_{command}.log'} 2>&1 "
         f"{CRONTAB_MARKER}"
     )
 
@@ -426,11 +486,21 @@ def _linux_status() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def install_schedule(interval_hours: int = 2) -> bool:
-    """Install a recurring OS-native scheduled task for ``ronin search``.
+def install_schedule(
+    interval_hours: int = 2,
+    command: str = DEFAULT_SCHEDULE_COMMAND,
+    at_time: Optional[str] = None,
+    weekdays_only: bool = False,
+) -> bool:
+    """Install a recurring OS-native scheduled task.
 
     Args:
-        interval_hours: How often (in hours) to run the search.  Defaults to 2.
+        interval_hours: How often (in hours) to run the task. Defaults to 2.
+            Ignored if ``at_time`` is provided.
+        command: Ronin subcommand to run. Supported: "search", "run", "apply".
+        at_time: Optional time-of-day in HH:MM (24h). If set, installs a
+            calendar schedule instead of an interval schedule.
+        weekdays_only: If True and ``at_time`` is set, run on weekdays only.
 
     Returns:
         True if the schedule was installed successfully.
@@ -438,20 +508,32 @@ def install_schedule(interval_hours: int = 2) -> bool:
     Raises:
         OSError: If the current platform is not supported.
     """
-    if interval_hours < 1:
+    if at_time is None and interval_hours < 1:
         raise ValueError(f"interval_hours must be >= 1, got {interval_hours}")
 
+    if command not in ALLOWED_SCHEDULE_COMMANDS:
+        allowed = ", ".join(sorted(ALLOWED_SCHEDULE_COMMANDS))
+        raise ValueError(
+            f"Unsupported scheduled command: {command}. Allowed: {allowed}"
+        )
+
     plat = _current_platform()
-    logger.info(f"Installing schedule on {plat} (every {interval_hours}h)")
+    logger.info(
+        (
+            f"Installing schedule on {plat}: ronin {command} at {at_time}"
+            if at_time
+            else f"Installing schedule on {plat}: ronin {command} (every {interval_hours}h)"
+        )
+    )
 
     if plat == "macos":
-        return _macos_install(interval_hours)
+        return _macos_install(interval_hours, command, at_time, weekdays_only)
     if plat == "windows":
-        return _windows_install(interval_hours)
-    return _linux_install(interval_hours)
+        return _windows_install(interval_hours, command, at_time, weekdays_only)
+    return _linux_install(interval_hours, command, at_time, weekdays_only)
 
 
-def uninstall_schedule() -> bool:
+def uninstall_schedule(command: str = DEFAULT_SCHEDULE_COMMAND) -> bool:
     """Remove the previously installed scheduled task.
 
     Returns:
@@ -464,13 +546,28 @@ def uninstall_schedule() -> bool:
     logger.info(f"Uninstalling schedule on {plat}")
 
     if plat == "macos":
-        return _macos_uninstall()
+        plist_path = _get_plist_path(command)
+        if not plist_path.exists():
+            logger.info("Plist does not exist; nothing to uninstall")
+            return True
+
+        result = subprocess.run(
+            ["launchctl", "unload", str(plist_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            logger.warning(f"launchctl unload: {result.stderr.strip()}")
+
+        plist_path.unlink(missing_ok=True)
+        logger.info("launchd job removed")
+        return True
     if plat == "windows":
-        return _windows_uninstall()
+        return _windows_uninstall(command)
     return _linux_uninstall()
 
 
-def get_schedule_status() -> dict:
+def get_schedule_status(command: str = DEFAULT_SCHEDULE_COMMAND) -> dict:
     """Return the current state of the scheduled task.
 
     Returns:
@@ -488,9 +585,33 @@ def get_schedule_status() -> dict:
     plat = _current_platform()
 
     if plat == "macos":
-        info = _macos_status()
+        info: dict = {"installed": False, "interval_hours": 0, "next_run": None}
+        plist_path = _get_plist_path(command)
+        if not plist_path.exists():
+            info["platform"] = plat
+            return info
+
+        plist_text = plist_path.read_text()
+        match = re.search(
+            r"<key>StartInterval</key>\s*<integer>(\d+)</integer>", plist_text
+        )
+        interval_seconds = int(match.group(1)) if match else 0
+
+        # Check if the job is actually loaded.
+        label = _plist_label(command)
+        result = subprocess.run(
+            ["launchctl", "list", label],
+            capture_output=True,
+            text=True,
+        )
+        loaded = result.returncode == 0
+
+        info["installed"] = loaded
+        info["interval_hours"] = interval_seconds // 3600 if interval_seconds else 0
+        info["platform"] = plat
+        return info
     elif plat == "windows":
-        info = _windows_status()
+        info = _windows_status(command)
     else:
         info = _linux_status()
 

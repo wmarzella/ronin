@@ -534,6 +534,8 @@ class ResumesScreen(Screen):
             yield Static(
                 "Define one or more resume profiles. Each is a plain-text resume "
                 "that Ronin selects based on job type.\n"
+                "[dim]Tip: if you use names expansion, consolidation, adaptation, "
+                "aspiration, Ronin maps those to archetype-aware matching.[/dim]\n"
             )
             for i, res in enumerate(existing):
                 yield from self._resume_widgets(i, res)
@@ -1172,15 +1174,29 @@ class ReviewScreen(Screen):
         # -- profile.yaml --
         boards = data.get("boards", {})
         resumes_list = []
+        valid_archetypes = {
+            "expansion",
+            "consolidation",
+            "adaptation",
+            "aspiration",
+        }
         for res in data.get("resumes", []):
             name = res.get("name", "default")
             filename = name.replace(" ", "_") + ".txt"
             seek_id = boards.get(f"seek_{name}", "")
+            archetype = str(res.get("archetype", "")).strip().lower()
+            if archetype not in valid_archetypes:
+                inferred = name.strip().lower()
+                archetype = inferred if inferred in valid_archetypes else "adaptation"
             resumes_list.append(
                 {
                     "name": name,
                     "file": filename,
                     "seek_resume_id": seek_id,
+                    "archetype": archetype,
+                    "hiring_signal": str(res.get("hiring_signal", "")).strip(),
+                    "role_title_patterns": list(res.get("role_title_patterns", [])),
+                    "keyword_bias": list(res.get("keyword_bias", [])),
                     "use_when": {
                         "job_types": res.get("job_types", []),
                         "description": "",
@@ -1244,6 +1260,12 @@ class ReviewScreen(Screen):
                 "salary_min": professional.get("salary_min", 0),
                 "salary_max": professional.get("salary_max", 0),
                 "batch_limit": 100,
+                "queue_threshold": 0.15,
+            },
+            "database": {
+                "backend": "sqlite",
+                "spool_path": "data/spool.db",
+                "postgres": {"dsn": "", "fallback_to_spool": True},
             },
             "scraping": {
                 "max_jobs": 0,
@@ -1251,7 +1273,12 @@ class ReviewScreen(Screen):
                 "timeout_seconds": 10,
                 "quick_apply_only": True,
             },
-            "analysis": {"min_score": 0},
+            "analysis": {
+                "min_score": 0,
+                "feedback_min_samples": 2,
+                "enable_embeddings": True,
+                "embedding_model": "all-MiniLM-L6-v2",
+            },
             "proxy": {"enabled": False, "http_url": "", "https_url": ""},
             "notifications": {
                 "slack": {
@@ -1271,6 +1298,46 @@ class ReviewScreen(Screen):
             "schedule": {
                 "enabled": schedule.get("enabled", False),
                 "interval_hours": schedule.get("interval_hours", 2),
+            },
+            "tracking": {
+                "gmail": {
+                    "enabled": False,
+                    "mailbox": "INBOX",
+                    "lookback_days": 45,
+                    "query": "newer_than:1d",
+                    "auth_mode": "auto",
+                    "credentials_path": "credentials.json",
+                    "token_path": "~/.ronin/gmail_token.json",
+                    "max_messages_per_sync": 250,
+                }
+            },
+            "resume_variants": {
+                "repo_path": "resume",
+                "role_name": "data_engineer",
+                "seek_profile_mapping": {
+                    "builder": "default",
+                    "fixer": "default",
+                    "operator": "default",
+                    "translator": "default",
+                },
+                "archetype_mapping": {
+                    "builder": {
+                        "yaml": "yaml/data_engineer/b.yml",
+                        "markdown": "markdown/data_engineer_b.md",
+                    },
+                    "fixer": {
+                        "yaml": "yaml/data_engineer/b.yml",
+                        "markdown": "markdown/data_engineer_b.md",
+                    },
+                    "operator": {
+                        "yaml": "yaml/data_engineer/c.yml",
+                        "markdown": "markdown/data_engineer_c.md",
+                    },
+                    "translator": {
+                        "yaml": "yaml/data_engineer/c.yml",
+                        "markdown": "markdown/data_engineer_c.md",
+                    },
+                },
             },
             "timeouts": {
                 "http_request": 30,

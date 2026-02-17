@@ -1,0 +1,8 @@
+{"name": "rejected_basic", "expected": "rejected", "body_text": "Unfortunately, we have decided to progress with other candidates."}
+{"name": "rejected_shortlisted", "expected": "rejected", "body_text": "Thank you for your application. You were not shortlisted."}
+{"name": "interview_request_availability", "expected": "interview_request", "body_text": "We would like to discuss your application. When are you free for a phone screen?"}
+{"name": "interview_request_schedule", "expected": "interview_request", "body_text": "Can we arrange a time to meet and discuss the role?"}
+{"name": "viewed_signal", "expected": "viewed", "body_text": "Your application was viewed on SEEK."}
+{"name": "ack_received", "expected": "acknowledged", "body_text": "Thank you for applying. We have received your application."}
+{"name": "other_noise", "expected": "other", "body_text": "Here is your subscription receipt. No action required."}
+{"name": "priority_conflict", "expected": "interview_request", "body_text": "Thank you for applying. We have received your application. We would like to arrange a time to discuss next steps."}

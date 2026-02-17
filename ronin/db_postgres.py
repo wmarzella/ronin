@@ -1,8 +1,16 @@
-"""SQLite integration for job management."""
+"""PostgreSQL backend for Ronin job/application storage.
+
+This module mirrors the public API of :class:`ronin.db.SQLiteManager` so the
+rest of the codebase can switch backends via a factory (see ``ronin.db``).
+
+We intentionally keep most date/time columns as TEXT to preserve compatibility
+with the existing SQLite schema and string-based comparisons.
+"""
+
+from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
@@ -10,8 +18,16 @@ from urllib.parse import urlparse
 from loguru import logger
 
 
-class SQLiteManager:
-    """Manager for SQLite job database."""
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except Exception:  # pragma: no cover
+    psycopg = None
+    dict_row = None
+
+
+class PostgresManager:
+    """Manager for a PostgreSQL-backed Ronin database."""
 
     JOB_BOARD_MAPPING = {
         "seek.com.au": "seek",
@@ -21,46 +37,56 @@ class SQLiteManager:
         "jobs.lever.co": "lever",
     }
 
-    def __init__(self, db_path: Optional[str] = None):
-        """Initialize SQLite database connection."""
-        if db_path is None:
-            # Check RONIN_HOME first, then fallback to project root
-            from ronin.config import get_ronin_home
-
-            ronin_home = str(get_ronin_home())
-            user_db = os.path.join(ronin_home, "data", "ronin.db")
-            project_db = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "data",
-                "ronin.db",
+    def __init__(
+        self,
+        dsn: Optional[str] = None,
+    ) -> None:
+        if psycopg is None:  # pragma: no cover
+            raise RuntimeError(
+                "Postgres backend selected but psycopg is not installed. "
+                "Install with: pip install psycopg[binary]"
             )
-            # Prefer user dir if it exists, otherwise use project root
-            if os.path.exists(os.path.dirname(user_db)):
-                db_path = user_db
-            elif os.path.exists(os.path.dirname(project_db)):
-                db_path = project_db
-            else:
-                db_path = user_db  # Will be created
 
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        resolved = (
+            dsn
+            or os.environ.get("RONIN_DATABASE_DSN")
+            or os.environ.get("DATABASE_URL")
+        )
+        if not resolved:
+            raise ValueError(
+                "Postgres DSN missing. Set RONIN_DATABASE_DSN (or DATABASE_URL), "
+                "or pass dsn=... to PostgresManager."
+            )
 
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
-        self.conn.row_factory = sqlite3.Row
+        self.dsn = str(resolved)
+        self.conn = psycopg.connect(self.dsn, row_factory=dict_row)
+        self.existing_companies: Dict[str, int] = {}
 
-        logger.info(f"Connected to SQLite database: {db_path}")
-
+        logger.info(f"Connected to PostgreSQL database: {self._safe_dsn_for_logs()}")
         self._init_schema()
-        self.existing_companies = {}
 
-    def _init_schema(self):
-        """Initialize database schema."""
+    def _safe_dsn_for_logs(self) -> str:
+        raw = self.dsn
+        if "://" not in raw:
+            return "(dsn)"
+        try:
+            parsed = urlparse(raw)
+            host = parsed.hostname or "host"
+            port = parsed.port or 5432
+            db = (parsed.path or "/").lstrip("/") or "db"
+            user = parsed.username or "user"
+            return f"{parsed.scheme}://{user}@{host}:{port}/{db}"
+        except Exception:
+            return "(dsn)"
+
+    def _init_schema(self) -> None:
+        """Initialize database schema and apply additive migrations."""
         cursor = self.conn.cursor()
 
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS companies (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 name TEXT UNIQUE NOT NULL,
                 website TEXT,
                 linkedin_ref TEXT,
@@ -75,7 +101,7 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 job_id TEXT UNIQUE NOT NULL,
                 title TEXT NOT NULL,
                 description TEXT,
@@ -92,7 +118,7 @@ class SQLiteManager:
                 location TEXT,
                 status TEXT DEFAULT 'DISCOVERED',
                 keywords TEXT,
-                company_id INTEGER,
+                company_id BIGINT REFERENCES companies(id),
                 recruiter_id INTEGER,
                 open_job INTEGER DEFAULT 0,
                 last_modified TEXT,
@@ -102,16 +128,15 @@ class SQLiteManager:
                 resume_archetype TEXT DEFAULT 'adaptation',
                 archetype_scores TEXT,
                 archetype_primary TEXT,
-                embedding_vector BLOB,
+                embedding_vector BYTEA,
                 job_type TEXT DEFAULT 'unknown',
                 day_rate_or_salary TEXT,
                 seniority_level TEXT DEFAULT 'unknown',
                 tech_stack_tags TEXT,
                 market_intelligence_only INTEGER DEFAULT 0,
                 selection_needs_review INTEGER DEFAULT 0,
-                application_batch_id INTEGER,
-                resume_commit_hash TEXT,
-                FOREIGN KEY (company_id) REFERENCES companies(id)
+                application_batch_id BIGINT,
+                resume_commit_hash TEXT
             )
         """
         )
@@ -119,7 +144,7 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS applications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 job_id TEXT UNIQUE NOT NULL,
                 seek_job_id TEXT,
                 title TEXT NOT NULL,
@@ -129,8 +154,8 @@ class SQLiteManager:
                 company_name TEXT,
                 source TEXT,
                 url TEXT,
-                date_scraped DATE,
-                date_applied DATE,
+                date_scraped TEXT,
+                date_applied TEXT,
                 job_type TEXT,
                 day_rate_or_salary TEXT,
                 seniority_level TEXT,
@@ -138,26 +163,26 @@ class SQLiteManager:
                 search_keyword_origin TEXT,
                 archetype_scores TEXT,
                 archetype_primary TEXT,
-                embedding_vector BLOB,
+                embedding_vector BYTEA,
                 resume_profile TEXT DEFAULT 'default',
                 resume_archetype TEXT DEFAULT 'adaptation',
                 resume_variant_sent TEXT,
                 resume_commit_hash TEXT,
                 profile_state_at_application TEXT,
-                application_batch_id INTEGER,
+                application_batch_id BIGINT,
                 key_tools TEXT,
                 matching_keyword TEXT,
                 job_classification TEXT,
                 applied_at TEXT,
                 outcome TEXT DEFAULT 'PENDING',
-                outcome_confidence REAL DEFAULT 0,
+                outcome_confidence DOUBLE PRECISION DEFAULT 0,
                 outcome_email_message_id TEXT,
                 outcome_email_subject TEXT,
                 outcome_email_from TEXT,
                 outcome_email_received_at TEXT,
                 outcome_updated_at TEXT,
                 outcome_stage TEXT DEFAULT 'applied',
-                outcome_date DATE,
+                outcome_date TEXT,
                 outcome_email_id TEXT,
                 market_intelligence_only INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -170,16 +195,16 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS outcome_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 message_id TEXT UNIQUE NOT NULL,
                 thread_id TEXT,
                 sender TEXT,
                 subject TEXT,
                 received_at TEXT,
                 outcome TEXT,
-                confidence REAL DEFAULT 0,
+                confidence DOUBLE PRECISION DEFAULT 0,
                 match_strategy TEXT,
-                matched_application_id INTEGER,
+                matched_application_id BIGINT,
                 snippet TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (matched_application_id) REFERENCES applications(id)
@@ -200,7 +225,7 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS sender_ignore_list (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 sender_address TEXT,
                 sender_domain TEXT,
                 reason TEXT,
@@ -214,9 +239,9 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS email_parsed (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 gmail_message_id TEXT UNIQUE NOT NULL,
-                date_received TIMESTAMP NOT NULL,
+                date_received TIMESTAMPTZ NOT NULL,
                 sender_address TEXT NOT NULL,
                 sender_domain TEXT NOT NULL,
                 subject TEXT,
@@ -224,11 +249,11 @@ class SQLiteManager:
                 body_html TEXT,
                 source_type TEXT NOT NULL,
                 outcome_classification TEXT,
-                classification_confidence REAL,
-                matched_application_id INTEGER REFERENCES applications(id),
+                classification_confidence DOUBLE PRECISION,
+                matched_application_id BIGINT REFERENCES applications(id),
                 match_method TEXT,
                 requires_manual_review INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
@@ -236,12 +261,12 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS known_senders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 email_address TEXT NOT NULL,
                 domain TEXT NOT NULL,
                 company_name TEXT,
                 sender_type TEXT DEFAULT 'unknown',
-                first_seen_date DATE NOT NULL,
+                first_seen_date TEXT NOT NULL,
                 UNIQUE(email_address)
             )
         """
@@ -250,13 +275,13 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS resume_variants (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 archetype TEXT UNIQUE NOT NULL,
                 file_path TEXT NOT NULL,
                 current_commit_hash TEXT NOT NULL,
-                embedding_vector BLOB,
-                alignment_score REAL,
-                last_rewritten DATE,
+                embedding_vector BYTEA,
+                alignment_score DOUBLE PRECISION,
+                last_rewritten TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -266,13 +291,13 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS market_centroids (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 archetype TEXT NOT NULL,
-                window_start DATE NOT NULL,
-                window_end DATE NOT NULL,
-                centroid_vector BLOB NOT NULL,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                centroid_vector BYTEA NOT NULL,
                 jd_count INTEGER NOT NULL,
-                shift_from_previous REAL,
+                shift_from_previous DOUBLE PRECISION,
                 top_gained_terms TEXT,
                 top_lost_terms TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -284,11 +309,11 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS drift_alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 archetype TEXT NOT NULL,
                 alert_type TEXT NOT NULL,
-                metric_value REAL NOT NULL,
-                threshold_value REAL NOT NULL,
+                metric_value DOUBLE PRECISION NOT NULL,
+                threshold_value DOUBLE PRECISION NOT NULL,
                 details TEXT,
                 acknowledged INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -299,11 +324,11 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS application_batches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 archetype TEXT NOT NULL,
                 profile_state TEXT NOT NULL,
-                batch_start_date TIMESTAMP NOT NULL,
-                batch_end_date TIMESTAMP,
+                batch_start_date TEXT NOT NULL,
+                batch_end_date TEXT,
                 application_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -313,138 +338,32 @@ class SQLiteManager:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS phone_call_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 phone_number TEXT,
                 company_name TEXT,
                 job_title TEXT,
                 outcome TEXT,
                 notes TEXT,
-                call_date DATE NOT NULL,
-                matched_application_id INTEGER REFERENCES applications(id),
+                call_date TEXT NOT NULL,
+                matched_application_id BIGINT REFERENCES applications(id),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
 
-        # Create indexes for common queries
+        # Indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_job_id ON jobs(job_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)")
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name)"
         )
-        # Compound index for pending jobs query (status + quick_apply + score)
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_pending ON jobs(status, quick_apply, score DESC)"
         )
-        # Index for job classification
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_classification ON jobs(job_classification)"
         )
-        # Migrations: add columns if they don't exist on older databases
-        for col, col_type, default in [
-            ("job_classification", "TEXT", "'SHORT_TERM'"),
-            ("resume_profile", "TEXT", "'default'"),
-            ("key_tools", "TEXT", "''"),
-            ("matching_keyword", "TEXT", "''"),
-            ("resume_archetype", "TEXT", "'adaptation'"),
-            ("archetype_scores", "TEXT", "NULL"),
-            ("archetype_primary", "TEXT", "NULL"),
-            ("embedding_vector", "BLOB", "NULL"),
-            ("job_type", "TEXT", "'unknown'"),
-            ("day_rate_or_salary", "TEXT", "NULL"),
-            ("seniority_level", "TEXT", "'unknown'"),
-            ("tech_stack_tags", "TEXT", "NULL"),
-            ("market_intelligence_only", "INTEGER", "0"),
-            ("selection_needs_review", "INTEGER", "0"),
-            ("application_batch_id", "INTEGER", "NULL"),
-            ("resume_commit_hash", "TEXT", "NULL"),
-        ]:
-            try:
-                cursor.execute(f"SELECT {col} FROM jobs LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(
-                    f"ALTER TABLE jobs ADD COLUMN {col} {col_type} DEFAULT {default}"
-                )
-                logger.info(f"Migrated database: added jobs.{col} column")
-
-        # Migrate data from old tech_stack column to key_tools
-        try:
-            cursor.execute("SELECT tech_stack FROM jobs LIMIT 1")
-            # Old column exists — copy data to new column if key_tools is empty
-            cursor.execute(
-                "UPDATE jobs SET key_tools = tech_stack "
-                "WHERE key_tools IS NULL OR key_tools = ''"
-            )
-            logger.info("Migrated tech_stack data to key_tools column")
-        except sqlite3.OperationalError:
-            pass  # tech_stack column doesn't exist (fresh DB)
-
-        # Migrations: add columns for older applications tables
-        for col, col_type, default in [
-            ("seek_job_id", "TEXT", "NULL"),
-            ("job_title", "TEXT", "NULL"),
-            ("job_description_text", "TEXT", "NULL"),
-            ("date_scraped", "DATE", "NULL"),
-            ("date_applied", "DATE", "NULL"),
-            ("job_type", "TEXT", "NULL"),
-            ("day_rate_or_salary", "TEXT", "NULL"),
-            ("seniority_level", "TEXT", "NULL"),
-            ("tech_stack_tags", "TEXT", "NULL"),
-            ("search_keyword_origin", "TEXT", "NULL"),
-            ("archetype_scores", "TEXT", "NULL"),
-            ("archetype_primary", "TEXT", "NULL"),
-            ("embedding_vector", "BLOB", "NULL"),
-            ("resume_variant_sent", "TEXT", "NULL"),
-            ("resume_commit_hash", "TEXT", "NULL"),
-            ("profile_state_at_application", "TEXT", "NULL"),
-            ("application_batch_id", "INTEGER", "NULL"),
-            ("resume_archetype", "TEXT", "'adaptation'"),
-            ("matching_keyword", "TEXT", "''"),
-            ("outcome", "TEXT", "'PENDING'"),
-            ("outcome_confidence", "REAL", "0"),
-            ("outcome_stage", "TEXT", "'applied'"),
-            ("outcome_date", "DATE", "NULL"),
-            ("outcome_email_id", "TEXT", "NULL"),
-            ("market_intelligence_only", "INTEGER", "0"),
-            ("updated_at", "TEXT", "NULL"),
-        ]:
-            try:
-                cursor.execute(f"SELECT {col} FROM applications LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(
-                    f"ALTER TABLE applications ADD COLUMN {col} {col_type} DEFAULT {default}"
-                )
-                logger.info(f"Migrated applications table: added applications.{col}")
-
-        # Backfill denormalized fields used by feedback and drift tooling.
-        cursor.execute(
-            """
-            UPDATE applications
-            SET seek_job_id = COALESCE(seek_job_id, job_id),
-                job_title = COALESCE(job_title, title),
-                job_description_text = COALESCE(job_description_text, description),
-                date_applied = COALESCE(date_applied, substr(applied_at, 1, 10)),
-                outcome_stage = COALESCE(
-                    outcome_stage,
-                    CASE
-                        WHEN outcome = 'PENDING' THEN 'applied'
-                        WHEN outcome = 'REJECTION' THEN 'rejected'
-                        WHEN outcome IN ('CALLBACK', 'INTERVIEW') THEN 'interview_request'
-                        WHEN outcome = 'OFFER' THEN 'offer'
-                        ELSE 'applied'
-                    END
-                ),
-                updated_at = COALESCE(updated_at, last_modified)
-            WHERE seek_job_id IS NULL
-               OR job_title IS NULL
-               OR job_description_text IS NULL
-               OR date_applied IS NULL
-               OR outcome_stage IS NULL
-               OR updated_at IS NULL
-        """
-        )
-
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_matching_keyword ON jobs(matching_keyword)"
         )
@@ -498,7 +417,7 @@ class SQLiteManager:
         )
 
         self.conn.commit()
-        logger.debug("Database schema initialized")
+        logger.debug("Postgres schema initialized")
 
     def _get_job_source(self, url: str) -> str:
         """Determine job source from URL."""
@@ -513,7 +432,7 @@ class SQLiteManager:
 
     @staticmethod
     def _serialize_vector(vector) -> Optional[bytes]:
-        """Serialize an embedding vector to bytes for SQLite BLOB storage."""
+        """Serialize an embedding vector to bytes for BYTEA storage."""
         if vector is None:
             return None
         if isinstance(vector, (bytes, bytearray)):
@@ -533,8 +452,8 @@ class SQLiteManager:
         if isinstance(vector_blob, list):
             return [float(v) for v in vector_blob]
         try:
-            if isinstance(vector_blob, bytes):
-                payload = vector_blob.decode("utf-8")
+            if isinstance(vector_blob, (bytes, bytearray, memoryview)):
+                payload = bytes(vector_blob).decode("utf-8")
             else:
                 payload = str(vector_blob)
             data = json.loads(payload)
@@ -579,9 +498,9 @@ class SQLiteManager:
             return fallback
 
     def job_exists(self, job_id: str) -> bool:
-        """Check if a job ID already exists in the database using EXISTS query."""
+        """Check if a job ID already exists in the database."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT 1 FROM jobs WHERE job_id = ? LIMIT 1", (job_id,))
+        cursor.execute("SELECT 1 FROM jobs WHERE job_id = %s LIMIT 1", (job_id,))
         return cursor.fetchone() is not None
 
     def _get_or_create_company(self, company_name: str) -> Optional[int]:
@@ -596,40 +515,42 @@ class SQLiteManager:
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT id FROM companies WHERE LOWER(name) = LOWER(?)", (company_name,)
+                "SELECT id FROM companies WHERE LOWER(name) = LOWER(%s)",
+                (company_name,),
             )
             row = cursor.fetchone()
-
-            if row:
-                company_id = row[0]
+            if row and row.get("id") is not None:
+                company_id = int(row["id"])
                 self.existing_companies[company_lower] = company_id
                 return company_id
 
+            created_at = datetime.now().isoformat()
             cursor.execute(
-                "INSERT INTO companies (name, created_at) VALUES (?, ?)",
-                (company_name, datetime.now().isoformat()),
+                """
+                INSERT INTO companies (name, created_at)
+                VALUES (%s, %s)
+                ON CONFLICT(name) DO UPDATE SET name = excluded.name
+                RETURNING id
+            """,
+                (company_name, created_at),
             )
+            company_id = int(cursor.fetchone()["id"])
             self.conn.commit()
-
-            company_id = cursor.lastrowid
             self.existing_companies[company_lower] = company_id
-            logger.debug(f"Created company: {company_name} (ID: {company_id})")
-
             return company_id
 
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error getting/creating company '{company_name}': {e}")
+            self.conn.rollback()
             return None
 
     def insert_job(self, job_data: Dict) -> bool:
         """Insert a job into database if it doesn't exist."""
         job_id = job_data.get("job_id")
-
         if not job_id:
             logger.error("Missing job_id in job_data")
             return False
 
-        # Use EXISTS query instead of in-memory set
         if self.job_exists(job_id):
             logger.debug(f"Job {job_id} already exists, skipping")
             return False
@@ -640,9 +561,11 @@ class SQLiteManager:
             url = job_data.get("url", "")
             source = job_data.get("source") or self._get_job_source(url)
             company_id = self._get_or_create_company(company_name)
+
             archetype_scores = analysis_data.get("archetype_scores")
             if isinstance(archetype_scores, dict):
                 archetype_scores = json.dumps(archetype_scores)
+
             embedding_blob = self._serialize_vector(
                 analysis_data.get("embedding_vector")
             )
@@ -656,7 +579,8 @@ class SQLiteManager:
 
             cursor = self.conn.cursor()
             cursor.execute(
-                """INSERT INTO jobs (
+                """
+                INSERT INTO jobs (
                     job_id, title, description, score, key_tools, recommendation,
                     overview, url, source, quick_apply, created_at, pay, type,
                     location, status, keywords, company_id, job_classification,
@@ -665,7 +589,17 @@ class SQLiteManager:
                     day_rate_or_salary, seniority_level, tech_stack_tags,
                     market_intelligence_only, selection_needs_review,
                     application_batch_id, resume_commit_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s
+                )
+            """,
                 (
                     job_id,
                     job_data.get("title", ""),
@@ -703,17 +637,13 @@ class SQLiteManager:
                     analysis_data.get("resume_commit_hash"),
                 ),
             )
-            self.conn.commit()
 
-            logger.info(f"Added job {job_id}: {job_data.get('title', '')[:50]}")
+            self.conn.commit()
+            logger.debug(f"Inserted new job: {job_id}")
             return True
 
-        except sqlite3.IntegrityError:
-            # Race condition: job was inserted between check and insert
-            logger.debug(f"Job {job_id} already exists (race condition)")
-            return False
-        except sqlite3.Error as e:
-            logger.error(f"Error adding job {job_id} to database: {e}")
+        except Exception as e:
+            logger.error(f"Error inserting job: {e}")
             self.conn.rollback()
             return False
 
@@ -749,15 +679,15 @@ class SQLiteManager:
                 FROM jobs j
                 LEFT JOIN companies c ON j.company_id = c.id
                 WHERE j.status IN ('DISCOVERED', 'APP_ERROR')
-                AND j.quick_apply = 1
-                AND COALESCE(j.market_intelligence_only, 0) = 0
+                  AND j.quick_apply = 1
+                  AND COALESCE(j.market_intelligence_only, 0) = 0
                 ORDER BY j.score DESC, j.created_at DESC
-                LIMIT ?
+                LIMIT %s
             """,
-                (limit,),
+                (int(limit),),
             )
 
-            jobs = []
+            jobs: List[Dict] = []
             for row in cursor.fetchall():
                 job_dict = dict(row)
                 job_dict["work_type"] = job_dict.get("type", "")
@@ -778,8 +708,7 @@ class SQLiteManager:
                 jobs.append(job_dict)
 
             return jobs
-
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error getting pending jobs: {e}")
             return []
 
@@ -790,22 +719,14 @@ class SQLiteManager:
             cursor.execute(
                 """
                 UPDATE jobs
-                SET status = ?, last_modified = ?
-                WHERE job_id = ?
+                SET status = %s, last_modified = %s
+                WHERE job_id = %s
             """,
                 (status, datetime.now().isoformat(), job_id),
             )
-
             self.conn.commit()
-
-            if cursor.rowcount > 0:
-                logger.debug(f"Updated job {job_id} status to {status}")
-                return True
-            else:
-                logger.warning(f"Job {job_id} not found for status update")
-                return False
-
-        except sqlite3.Error as e:
+            return cursor.rowcount > 0
+        except Exception as e:
             logger.error(f"Error updating job status: {e}")
             self.conn.rollback()
             return False
@@ -815,7 +736,6 @@ class SQLiteManager:
         if not fields:
             return False
 
-        # Whitelist allowed field names to prevent SQL injection
         allowed_fields = {
             "status",
             "score",
@@ -864,16 +784,13 @@ class SQLiteManager:
                     safe_fields[json_key] = json.dumps(value)
 
         try:
-            set_clause = ", ".join([f"{key} = ?" for key in safe_fields.keys()])
-            values = list(safe_fields.values()) + [record_id]
-
+            set_clause = ", ".join([f"{key} = %s" for key in safe_fields.keys()])
+            values = list(safe_fields.values()) + [int(record_id)]
             cursor = self.conn.cursor()
-            cursor.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", values)
+            cursor.execute(f"UPDATE jobs SET {set_clause} WHERE id = %s", values)
             self.conn.commit()
-
-            logger.debug(f"Updated record {record_id}")
             return cursor.rowcount > 0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error updating record {record_id}: {e}")
             self.conn.rollback()
             return False
@@ -882,32 +799,33 @@ class SQLiteManager:
         """Get statistics about jobs in the database."""
         try:
             cursor = self.conn.cursor()
-            stats = {}
+            stats: Dict = {}
 
-            cursor.execute("SELECT COUNT(*) FROM jobs")
-            stats["total_jobs"] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) AS count FROM jobs")
+            row = cursor.fetchone()
+            stats["total_jobs"] = int(row.get("count", 0) if row else 0)
 
-            cursor.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status")
-            stats["by_status"] = {row[0]: row[1] for row in cursor.fetchall()}
+            cursor.execute("SELECT status, COUNT(*) AS count FROM jobs GROUP BY status")
+            stats["by_status"] = {
+                str(row.get("status")): int(row.get("count", 0))
+                for row in cursor.fetchall()
+            }
 
             cursor.execute(
-                "SELECT source, COUNT(*) FROM jobs GROUP BY source ORDER BY COUNT(*) DESC"
+                "SELECT source, COUNT(*) AS count FROM jobs GROUP BY source ORDER BY COUNT(*) DESC"
             )
-            stats["by_source"] = {row[0]: row[1] for row in cursor.fetchall()}
-
+            stats["by_source"] = {
+                str(row.get("source")): int(row.get("count", 0))
+                for row in cursor.fetchall()
+            }
             return stats
 
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error getting job stats: {e}")
             return {}
 
     def get_jobs_corpus(self, limit: int = 0) -> List[Dict]:
-        """Return job rows for corpus analysis (broad, unfiltered).
-
-        This intentionally does NOT filter on quick-apply or status; the corpus
-        is meant to reflect what has been scraped/stored, not only what is
-        currently queue-eligible.
-        """
+        """Return job rows for corpus analysis (broad, unfiltered)."""
         try:
             query = (
                 "SELECT id, job_id, title, created_at, status, quick_apply, source "
@@ -915,13 +833,13 @@ class SQLiteManager:
             )
             params: List = []
             if limit > 0:
-                query += " LIMIT ?"
+                query += " LIMIT %s"
                 params.append(int(limit))
 
             cursor = self.conn.cursor()
             cursor.execute(query, tuple(params))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading jobs corpus: {e}")
             return []
 
@@ -933,22 +851,22 @@ class SQLiteManager:
                 "j.created_at, j.status, j.quick_apply, j.source, j.archetype_primary, j.archetype_scores "
                 "FROM jobs j "
                 "LEFT JOIN companies c ON j.company_id = c.id "
-                "WHERE j.description IS NOT NULL AND TRIM(j.description) <> '' "
+                "WHERE j.description IS NOT NULL AND btrim(j.description) <> '' "
                 "ORDER BY j.created_at DESC"
             )
             params: List = []
             if limit > 0:
-                query += " LIMIT ?"
+                query += " LIMIT %s"
                 params.append(int(limit))
 
             cursor = self.conn.cursor()
             cursor.execute(query, tuple(params))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading jobs for labeling: {e}")
             return []
 
-    def get_job_by_job_id(self, job_id: str) -> Optional[Dict]:
+    def get_job_by_job_id(self, job_id: str):
         """Return a single job row by job_id."""
         if not job_id:
             return None
@@ -957,20 +875,20 @@ class SQLiteManager:
             cursor.execute(
                 "SELECT j.*, c.name AS company_name "
                 "FROM jobs j LEFT JOIN companies c ON j.company_id = c.id "
-                "WHERE j.job_id = ?",
+                "WHERE j.job_id = %s",
                 (str(job_id),),
             )
             row = cursor.fetchone()
             return dict(row) if row else None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading job by job_id {job_id}: {e}")
             return None
 
     def get_existing_job_ids(self) -> set:
-        """Get all existing job IDs. Use sparingly - prefer job_exists() for single checks."""
+        """Get all existing job IDs."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT job_id FROM jobs")
-        return {row[0] for row in cursor.fetchall()}
+        return {str(row.get("job_id")) for row in cursor.fetchall()}
 
     def record_application_submission(self, job_record: Dict) -> bool:
         """Upsert an application snapshot when a job is successfully submitted."""
@@ -1003,7 +921,19 @@ class SQLiteManager:
                     job_classification, applied_at, outcome_stage,
                     market_intelligence_only, created_at, updated_at,
                     last_modified
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s,
+                    %s
+                )
                 ON CONFLICT(job_id) DO UPDATE SET
                     seek_job_id = excluded.seek_job_id,
                     title = excluded.title,
@@ -1083,7 +1013,7 @@ class SQLiteManager:
             )
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error recording application submission for {job_id}: {e}")
             self.conn.rollback()
             return False
@@ -1097,21 +1027,20 @@ class SQLiteManager:
         try:
             query = "SELECT * FROM applications"
             params: list = []
-
             if outcomes:
-                placeholders = ", ".join("?" for _ in outcomes)
+                placeholders = ", ".join(["%s"] * len(outcomes))
                 query += f" WHERE outcome IN ({placeholders})"
                 params.extend(outcomes)
 
             query += " ORDER BY applied_at DESC"
             if limit > 0:
-                query += " LIMIT ?"
-                params.append(limit)
+                query += " LIMIT %s"
+                params.append(int(limit))
 
             cursor = self.conn.cursor()
             cursor.execute(query, tuple(params))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading applications: {e}")
             return []
 
@@ -1133,7 +1062,7 @@ class SQLiteManager:
                     message_id, thread_id, sender, subject, received_at,
                     outcome, confidence, match_strategy, matched_application_id,
                     snippet, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     event.get("message_id"),
@@ -1165,14 +1094,10 @@ class SQLiteManager:
             self.conn.commit()
             return True
 
-        except sqlite3.IntegrityError:
+        except Exception as e:
+            # If the message_id is already recorded, treat as duplicate.
             logger.debug(
-                f"Outcome event {event.get('message_id')} already recorded, skipping"
-            )
-            return False
-        except sqlite3.Error as e:
-            logger.error(
-                f"Error recording outcome event {event.get('message_id')}: {e}"
+                f"Outcome event {event.get('message_id')} not recorded (duplicate or error): {e}"
             )
             self.conn.rollback()
             return False
@@ -1193,7 +1118,7 @@ class SQLiteManager:
             """
             SELECT outcome, outcome_email_received_at
             FROM applications
-            WHERE id = ?
+            WHERE id = %s
         """,
             (application_id,),
         )
@@ -1202,8 +1127,8 @@ class SQLiteManager:
             logger.debug(f"Matched application {application_id} no longer exists")
             return
 
-        current_outcome = row[0] or "PENDING"
-        current_received_at = row[1]
+        current_outcome = row.get("outcome") or "PENDING"
+        current_received_at = row.get("outcome_email_received_at")
 
         if not self._should_update_outcome(
             current_outcome=current_outcome,
@@ -1213,34 +1138,33 @@ class SQLiteManager:
         ):
             return
 
+        stage = self._map_outcome_to_stage(outcome)
         cursor.execute(
             """
             UPDATE applications
-            SET outcome = ?,
-                outcome_confidence = ?,
-                outcome_email_message_id = ?,
-                outcome_email_subject = ?,
-                outcome_email_from = ?,
-                outcome_email_received_at = ?,
-                outcome_updated_at = ?,
-                outcome_stage = ?,
-                outcome_date = ?,
-                outcome_email_id = ?,
-                updated_at = ?,
-                last_modified = ?
-            WHERE id = ?
+            SET outcome = %s,
+                outcome_confidence = %s,
+                outcome_email_message_id = %s,
+                outcome_email_subject = %s,
+                outcome_email_from = %s,
+                outcome_email_received_at = %s,
+                outcome_updated_at = %s,
+                outcome_stage = %s,
+                outcome_date = %s,
+                updated_at = %s,
+                last_modified = %s
+            WHERE id = %s
         """,
             (
                 outcome,
-                confidence,
+                float(confidence or 0.0),
                 message_id,
                 subject,
                 sender,
                 received_at,
                 datetime.now().isoformat(),
-                self._map_outcome_to_stage(outcome),
-                (received_at or datetime.now().isoformat())[:10],
-                message_id,
+                stage,
+                (received_at or "")[:10] if received_at else None,
                 datetime.now().isoformat(),
                 datetime.now().isoformat(),
                 application_id,
@@ -1249,21 +1173,18 @@ class SQLiteManager:
 
     @staticmethod
     def _map_outcome_to_stage(outcome: str) -> str:
-        """Map legacy outcomes to normalized outcome stages."""
-        normalized = (outcome or "").strip().upper()
+        """Map legacy outcome (PENDING/CALLBACK/...) to normalized stage."""
         mapping = {
             "PENDING": "applied",
-            "REJECTION": "rejected",
             "CALLBACK": "interview_request",
             "INTERVIEW": "interview_request",
+            "REJECTION": "rejected",
             "OFFER": "offer",
-            "ACKNOWLEDGED": "acknowledged",
-            "VIEWED": "viewed",
         }
-        return mapping.get(normalized, "other")
+        return mapping.get(str(outcome or "").upper(), "applied")
 
+    @staticmethod
     def _should_update_outcome(
-        self,
         current_outcome: str,
         current_received_at: Optional[str],
         new_outcome: str,
@@ -1284,8 +1205,8 @@ class SQLiteManager:
             return priority.get(new_outcome, 0) >= priority.get(current_outcome, 0)
 
         try:
-            current_dt = datetime.fromisoformat(current_received_at)
-            new_dt = datetime.fromisoformat(new_received_at)
+            current_dt = datetime.fromisoformat(str(current_received_at))
+            new_dt = datetime.fromisoformat(str(new_received_at))
         except ValueError:
             return priority.get(new_outcome, 0) >= priority.get(current_outcome, 0)
 
@@ -1300,15 +1221,16 @@ class SQLiteManager:
         """Return aggregate statistics for tracked application outcomes."""
         try:
             cursor = self.conn.cursor()
-
-            cursor.execute("SELECT COUNT(*) FROM applications")
-            total = int(cursor.fetchone()[0])
+            cursor.execute("SELECT COUNT(*) AS count FROM applications")
+            total_row = cursor.fetchone()
+            total = int(total_row.get("count", 0) if total_row else 0)
 
             cursor.execute(
-                "SELECT outcome_stage, COUNT(*) FROM applications GROUP BY outcome_stage"
+                "SELECT outcome_stage, COUNT(*) AS count FROM applications GROUP BY outcome_stage"
             )
             by_stage = {
-                str(row[0] or "applied"): int(row[1]) for row in cursor.fetchall()
+                str(row.get("outcome_stage") or "applied"): int(row.get("count", 0))
+                for row in cursor.fetchall()
             }
 
             resolved = total - by_stage.get("applied", 0)
@@ -1317,10 +1239,8 @@ class SQLiteManager:
                 + by_stage.get("interview_request", 0)
                 + by_stage.get("offer", 0)
             )
-
             conversion_rate = (positive / resolved) if resolved else 0.0
 
-            # Backward-compatible labels used by older status/report code paths.
             by_outcome = {
                 "PENDING": by_stage.get("applied", 0),
                 "ACKNOWLEDGED": by_stage.get("acknowledged", 0),
@@ -1339,7 +1259,7 @@ class SQLiteManager:
                 "by_outcome": by_outcome,
                 "by_stage": by_stage,
             }
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading application outcome stats: {e}")
             return {
                 "total": 0,
@@ -1352,6 +1272,7 @@ class SQLiteManager:
 
     def get_ghosted_applications(self, limit: int = 50) -> List[Dict]:
         """Return applications with no signal after 30+ days (ghosted)."""
+        cutoff = (date.today() - timedelta(days=30)).isoformat()
         try:
             cursor = self.conn.cursor()
             cursor.execute(
@@ -1361,14 +1282,14 @@ class SQLiteManager:
                 WHERE market_intelligence_only = 0
                   AND outcome_stage = 'applied'
                   AND date_applied IS NOT NULL
-                  AND date(date_applied) < date('now', '-30 days')
+                  AND date_applied < %s
                 ORDER BY date_applied ASC
-                LIMIT ?
+                LIMIT %s
             """,
-                (max(1, int(limit)),),
+                (cutoff, max(1, int(limit))),
             )
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading ghosted applications: {e}")
             return []
 
@@ -1376,10 +1297,10 @@ class SQLiteManager:
         """Get a sync cursor/state value by key."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT value FROM sync_state WHERE key = ?", (key,))
+            cursor.execute("SELECT value FROM sync_state WHERE key = %s", (key,))
             row = cursor.fetchone()
-            return row[0] if row else None
-        except sqlite3.Error as e:
+            return str(row.get("value")) if row else None
+        except Exception as e:
             logger.error(f"Error reading sync state '{key}': {e}")
             return None
 
@@ -1390,7 +1311,7 @@ class SQLiteManager:
             cursor.execute(
                 """
                 INSERT INTO sync_state (key, value, updated_at)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 ON CONFLICT(key) DO UPDATE SET
                     value = excluded.value,
                     updated_at = excluded.updated_at
@@ -1399,7 +1320,7 @@ class SQLiteManager:
             )
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error writing sync state '{key}': {e}")
             self.conn.rollback()
             return False
@@ -1413,13 +1334,13 @@ class SQLiteManager:
                 SELECT j.*, c.name AS company_name
                 FROM jobs j
                 LEFT JOIN companies c ON j.company_id = c.id
-                WHERE j.id = ?
+                WHERE j.id = %s
             """,
-                (record_id,),
+                (int(record_id),),
             )
             row = cursor.fetchone()
             return dict(row) if row else None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error fetching job record {record_id}: {e}")
             return None
 
@@ -1433,7 +1354,7 @@ class SQLiteManager:
                 """
                 SELECT *
                 FROM applications
-                WHERE seek_job_id = ? OR job_id = ?
+                WHERE seek_job_id = %s OR job_id = %s
                 ORDER BY applied_at DESC
                 LIMIT 1
             """,
@@ -1441,7 +1362,7 @@ class SQLiteManager:
             )
             row = cursor.fetchone()
             return dict(row) if row else None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(
                 f"Error fetching application by seek_job_id {seek_job_id}: {e}"
             )
@@ -1458,14 +1379,14 @@ class SQLiteManager:
                 """
                 SELECT *
                 FROM applications
-                WHERE date_applied >= ?
-                   OR applied_at >= ?
+                WHERE date_applied >= %s
+                   OR applied_at >= %s
                 ORDER BY applied_at DESC
             """,
                 (window_start, f"{window_start}T00:00:00"),
             )
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading recent applications for matching: {e}")
             return []
 
@@ -1483,11 +1404,10 @@ class SQLiteManager:
             """
             )
             rows = cursor.fetchall()
-
             for row in rows:
-                archetype = (row[0] or "unknown").strip().lower()
-                scores = self._safe_json_load(row[1], {})
-                market_intel = bool(row[3])
+                archetype = (row.get("archetype_primary") or "unknown").strip().lower()
+                scores = self._safe_json_load(row.get("archetype_scores"), {})
+                market_intel = bool(row.get("market_intelligence_only"))
                 bucket = "market_intel" if market_intel else archetype
                 if bucket not in summary:
                     summary[bucket] = {"count": 0.0, "score_sum": 0.0}
@@ -1500,7 +1420,7 @@ class SQLiteManager:
                         primary_score = 0.0
                 if primary_score <= 0:
                     try:
-                        primary_score = float(row[2] or 0) / 100.0
+                        primary_score = float(row.get("score") or 0) / 100.0
                     except Exception:
                         primary_score = 0.0
 
@@ -1513,7 +1433,7 @@ class SQLiteManager:
                 values["avg_score"] = round(avg, 3)
 
             return summary
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error getting queue summary: {e}")
             return {}
 
@@ -1529,13 +1449,12 @@ class SQLiteManager:
             )
             params: List = []
             if limit > 0:
-                query += " LIMIT ?"
-                params.append(limit)
-
+                query += " LIMIT %s"
+                params.append(int(limit))
             cursor = self.conn.cursor()
             cursor.execute(query, tuple(params))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error loading queue candidates: {e}")
             return []
 
@@ -1552,17 +1471,16 @@ class SQLiteManager:
             )
             params: List = []
             if archetype:
-                query += " AND LOWER(COALESCE(j.archetype_primary, '')) = ?"
+                query += " AND LOWER(COALESCE(j.archetype_primary, '')) = %s"
                 params.append(archetype.strip().lower())
             query += " ORDER BY j.score DESC, j.created_at DESC"
             if limit > 0:
-                query += " LIMIT ?"
-                params.append(limit)
-
+                query += " LIMIT %s"
+                params.append(int(limit))
             cursor = self.conn.cursor()
             cursor.execute(query, tuple(params))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error getting queued jobs: {e}")
             return []
 
@@ -1580,12 +1498,12 @@ class SQLiteManager:
                   AND COALESCE(j.market_intelligence_only, 0) = 0
                   AND COALESCE(j.selection_needs_review, 0) = 1
                 ORDER BY j.score DESC, j.created_at DESC
-                LIMIT ?
+                LIMIT %s
             """,
                 (max(1, int(limit)),),
             )
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error getting close-call jobs: {e}")
             return []
 
@@ -1598,15 +1516,16 @@ class SQLiteManager:
             cursor = self.conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO application_batches (
-                    archetype, profile_state, batch_start_date
-                ) VALUES (?, ?, ?)
+                INSERT INTO application_batches (archetype, profile_state, batch_start_date)
+                VALUES (%s, %s, %s)
+                RETURNING id
             """,
                 (archetype, profile_state, started_at),
             )
+            batch_id = int(cursor.fetchone()["id"])
             self.conn.commit()
-            return int(cursor.lastrowid)
-        except sqlite3.Error as e:
+            return batch_id
+        except Exception as e:
             logger.error(f"Error creating application batch: {e}")
             self.conn.rollback()
             return None
@@ -1619,14 +1538,14 @@ class SQLiteManager:
             cursor.execute(
                 """
                 UPDATE application_batches
-                SET batch_end_date = ?, application_count = ?
-                WHERE id = ?
+                SET batch_end_date = %s, application_count = %s
+                WHERE id = %s
             """,
-                (ended_at, int(application_count), batch_id),
+                (ended_at, int(application_count), int(batch_id)),
             )
             self.conn.commit()
             return cursor.rowcount > 0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error finalizing application batch {batch_id}: {e}")
             self.conn.rollback()
             return False
@@ -1647,25 +1566,23 @@ class SQLiteManager:
                 """
                 UPDATE jobs
                 SET status = 'APPLIED',
-                    last_modified = ?,
-                    application_batch_id = ?,
-                    resume_profile = COALESCE(resume_profile, ?),
-                    resume_archetype = COALESCE(resume_archetype, ?),
-                    resume_commit_hash = COALESCE(?, resume_commit_hash)
-                WHERE id = ?
+                    last_modified = %s,
+                    application_batch_id = %s,
+                    resume_archetype = %s,
+                    resume_commit_hash = %s
+                WHERE id = %s
             """,
                 (
                     now,
                     batch_id,
                     resume_variant_sent,
-                    profile_state,
                     resume_commit_hash,
-                    record_id,
+                    int(record_id),
                 ),
             )
             self.conn.commit()
             return cursor.rowcount > 0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error marking job {record_id} applied: {e}")
             self.conn.rollback()
             return False
@@ -1675,7 +1592,7 @@ class SQLiteManager:
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT * FROM resume_variants WHERE archetype = ?",
+                "SELECT * FROM resume_variants WHERE archetype = %s",
                 (archetype,),
             )
             row = cursor.fetchone()
@@ -1686,7 +1603,7 @@ class SQLiteManager:
                 data.get("embedding_vector")
             )
             return data
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error fetching resume variant {archetype}: {e}")
             return None
 
@@ -1703,7 +1620,7 @@ class SQLiteManager:
                 )
                 rows.append(data)
             return rows
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error listing resume variants: {e}")
             return []
 
@@ -1725,7 +1642,7 @@ class SQLiteManager:
                 INSERT INTO resume_variants (
                     archetype, file_path, current_commit_hash, embedding_vector,
                     alignment_score, last_rewritten, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(archetype) DO UPDATE SET
                     file_path = excluded.file_path,
                     current_commit_hash = excluded.current_commit_hash,
@@ -1747,7 +1664,7 @@ class SQLiteManager:
             )
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error upserting resume variant {archetype}: {e}")
             self.conn.rollback()
             return False
@@ -1760,14 +1677,14 @@ class SQLiteManager:
                 """
                 SELECT 1
                 FROM sender_ignore_list
-                WHERE LOWER(COALESCE(sender_address, '')) = LOWER(?)
-                   OR LOWER(COALESCE(sender_domain, '')) = LOWER(?)
+                WHERE LOWER(COALESCE(sender_address, '')) = LOWER(%s)
+                   OR LOWER(COALESCE(sender_domain, '')) = LOWER(%s)
                 LIMIT 1
             """,
                 (sender_address or "", sender_domain or ""),
             )
             return cursor.fetchone() is not None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error checking sender ignore list: {e}")
             return False
 
@@ -1789,7 +1706,7 @@ class SQLiteManager:
                 cursor.execute(
                     """
                     INSERT INTO sender_ignore_list (sender_address, sender_domain, reason)
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT(sender_address) DO UPDATE SET
                         sender_domain = excluded.sender_domain,
                         reason = excluded.reason
@@ -1800,7 +1717,7 @@ class SQLiteManager:
                 cursor.execute(
                     """
                     INSERT INTO sender_ignore_list (sender_address, sender_domain, reason)
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT(sender_domain) DO UPDATE SET
                         sender_address = excluded.sender_address,
                         reason = excluded.reason
@@ -1809,7 +1726,7 @@ class SQLiteManager:
                 )
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error adding sender ignore rule: {e}")
             self.conn.rollback()
             return False
@@ -1823,12 +1740,12 @@ class SQLiteManager:
                 SELECT id, sender_address, sender_domain, reason, created_at
                 FROM sender_ignore_list
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT %s
             """,
                 (max(1, int(limit)),),
             )
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error listing sender ignore rules: {e}")
             return []
 
@@ -1849,7 +1766,7 @@ class SQLiteManager:
                 """
                 INSERT INTO known_senders (
                     email_address, domain, company_name, sender_type, first_seen_date
-                ) VALUES (?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT(email_address) DO UPDATE SET
                     domain = excluded.domain,
                     company_name = COALESCE(excluded.company_name, known_senders.company_name),
@@ -1859,7 +1776,7 @@ class SQLiteManager:
             )
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error upserting known sender {email_address}: {e}")
             self.conn.rollback()
             return False
@@ -1871,12 +1788,12 @@ class SQLiteManager:
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT * FROM known_senders WHERE LOWER(email_address) = LOWER(?)",
+                "SELECT * FROM known_senders WHERE LOWER(email_address) = LOWER(%s)",
                 (email_address,),
             )
             row = cursor.fetchone()
             return dict(row) if row else None
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error looking up known sender {email_address}: {e}")
             return None
 
@@ -1891,7 +1808,9 @@ class SQLiteManager:
                     subject, body_text, body_html, source_type,
                     outcome_classification, classification_confidence,
                     matched_application_id, match_method, requires_manual_review
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT(gmail_message_id) DO NOTHING
+                RETURNING id
             """,
                 (
                     parsed.get("gmail_message_id"),
@@ -1909,11 +1828,13 @@ class SQLiteManager:
                     int(bool(parsed.get("requires_manual_review"))),
                 ),
             )
+            row = cursor.fetchone()
+            if not row:
+                self.conn.rollback()
+                return None
             self.conn.commit()
-            return int(cursor.lastrowid)
-        except sqlite3.IntegrityError:
-            return None
-        except sqlite3.Error as e:
+            return int(row["id"])
+        except Exception as e:
             logger.error(
                 f"Error inserting parsed email {parsed.get('gmail_message_id')}: {e}"
             )
@@ -1930,12 +1851,12 @@ class SQLiteManager:
                 FROM email_parsed
                 WHERE requires_manual_review = 1
                 ORDER BY date_received DESC
-                LIMIT ?
+                LIMIT %s
             """,
-                (limit,),
+                (max(1, int(limit)),),
             )
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error fetching manual review emails: {e}")
             return []
 
@@ -1945,31 +1866,18 @@ class SQLiteManager:
         application_id: int,
         match_method: str = "manual",
     ) -> bool:
-        """Confirm an email->application match and clear manual review flag.
-
-        This updates both:
-        - ``email_parsed``: attaches matched_application_id and clears requires_manual_review
-        - ``applications``: updates outcome_stage/outcome_date/outcome_email_id when applicable
-
-        Args:
-            email_parsed_id: Primary key from email_parsed.
-            application_id: Primary key from applications.
-            match_method: Stored into email_parsed.match_method (default: "manual").
-
-        Returns:
-            True if updated, False otherwise.
-        """
+        """Confirm an email->application match and clear manual review flag."""
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT * FROM email_parsed WHERE id = ?", (email_parsed_id,)
+                "SELECT * FROM email_parsed WHERE id = %s", (email_parsed_id,)
             )
             email_row = cursor.fetchone()
             if not email_row:
                 return False
 
             cursor.execute(
-                "SELECT id, company_name FROM applications WHERE id = ?",
+                "SELECT id, company_name FROM applications WHERE id = %s",
                 (application_id,),
             )
             app_row = cursor.fetchone()
@@ -1979,17 +1887,16 @@ class SQLiteManager:
             cursor.execute(
                 """
                 UPDATE email_parsed
-                SET matched_application_id = ?,
-                    match_method = ?,
+                SET matched_application_id = %s,
+                    match_method = %s,
                     requires_manual_review = 0
-                WHERE id = ?
+                WHERE id = %s
             """,
                 (application_id, match_method, email_parsed_id),
             )
 
-            # Apply outcome signal to the matched application (if this email is a signal).
-            stage = (email_row["outcome_classification"] or "other").strip()
-            received = str(email_row["date_received"] or "")
+            stage = (email_row.get("outcome_classification") or "other").strip()
+            received = str(email_row.get("date_received") or "")
             outcome_date = received[:10] if received else None
             if stage and stage != "other":
                 now = datetime.now().isoformat()
@@ -2006,13 +1913,13 @@ class SQLiteManager:
                 cursor.execute(
                     """
                     UPDATE applications
-                    SET outcome_stage = ?,
-                        outcome_date = ?,
-                        outcome_email_id = ?,
-                        outcome = ?,
-                        updated_at = ?,
-                        last_modified = ?
-                    WHERE id = ?
+                    SET outcome_stage = %s,
+                        outcome_date = %s,
+                        outcome_email_id = %s,
+                        outcome = %s,
+                        updated_at = %s,
+                        last_modified = %s
+                    WHERE id = %s
                 """,
                     (
                         stage,
@@ -2025,15 +1932,14 @@ class SQLiteManager:
                     ),
                 )
 
-            # Add sender to known_senders after confirmation.
-            sender_address = (email_row["sender_address"] or "").strip()
-            sender_domain = (email_row["sender_domain"] or "").strip()
+            sender_address = (email_row.get("sender_address") or "").strip()
+            sender_domain = (email_row.get("sender_domain") or "").strip()
             if sender_address:
                 cursor.execute(
                     """
                     INSERT INTO known_senders (
                         email_address, domain, company_name, sender_type, first_seen_date
-                    ) VALUES (?, ?, ?, ?, ?)
+                    ) VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT(email_address) DO UPDATE SET
                         domain = excluded.domain,
                         company_name = COALESCE(excluded.company_name, known_senders.company_name),
@@ -2042,7 +1948,7 @@ class SQLiteManager:
                     (
                         sender_address,
                         sender_domain,
-                        app_row["company_name"],
+                        app_row.get("company_name"),
                         "unknown",
                         date.today().isoformat(),
                     ),
@@ -2050,7 +1956,7 @@ class SQLiteManager:
 
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error resolving manual review email match: {e}")
             self.conn.rollback()
             return False
@@ -2079,13 +1985,13 @@ class SQLiteManager:
             cursor.execute(
                 """
                 UPDATE applications
-                SET outcome_stage = ?,
-                    outcome_date = ?,
-                    outcome_email_id = ?,
-                    outcome = ?,
-                    updated_at = ?,
-                    last_modified = ?
-                WHERE id = ?
+                SET outcome_stage = %s,
+                    outcome_date = %s,
+                    outcome_email_id = %s,
+                    outcome = %s,
+                    updated_at = %s,
+                    last_modified = %s
+                WHERE id = %s
             """,
                 (
                     stage,
@@ -2094,12 +2000,12 @@ class SQLiteManager:
                     stage_map.get(stage, "PENDING"),
                     now,
                     now,
-                    application_id,
+                    int(application_id),
                 ),
             )
             self.conn.commit()
             return cursor.rowcount > 0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error updating application outcome stage: {e}")
             self.conn.rollback()
             return False
@@ -2122,7 +2028,8 @@ class SQLiteManager:
                 INSERT INTO phone_call_log (
                     phone_number, company_name, job_title, outcome,
                     notes, call_date, matched_application_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
             """,
                 (
                     phone_number,
@@ -2134,7 +2041,8 @@ class SQLiteManager:
                     matched_application_id,
                 ),
             )
-            call_id = int(cursor.lastrowid)
+            row = cursor.fetchone()
+            call_id = int(row["id"]) if row else None
 
             if matched_application_id:
                 mapped_stage = {
@@ -2152,16 +2060,18 @@ class SQLiteManager:
 
             self.conn.commit()
             return call_id
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error recording phone call log: {e}")
             self.conn.rollback()
             return None
 
     def get_funnel_metrics(self) -> Dict:
         """Return funnel analytics used by feedback/status/apply dashboards."""
+        ghost_cutoff = (date.today() - timedelta(days=30)).isoformat()
         try:
             cursor = self.conn.cursor()
-            overview_query = """
+            cursor.execute(
+                """
                 SELECT
                     COUNT(*) AS total_applied,
                     SUM(CASE WHEN outcome_stage != 'applied' THEN 1 ELSE 0 END) AS any_response,
@@ -2171,20 +2081,22 @@ class SQLiteManager:
                     SUM(
                         CASE
                             WHEN outcome_stage = 'applied'
-                             AND date_applied < date('now', '-30 days')
+                             AND date_applied < %s
                             THEN 1 ELSE 0
                         END
                     ) AS ghost
                 FROM applications
                 WHERE market_intelligence_only = 0
-            """
-            cursor.execute(overview_query)
+            """,
+                (ghost_cutoff,),
+            )
             overview_row = cursor.fetchone()
             overview = dict(overview_row) if overview_row else {}
 
-            monthly_query = """
+            cursor.execute(
+                """
                 SELECT
-                    strftime('%Y-%m', date_applied) AS month,
+                    SUBSTRING(date_applied, 1, 7) AS month,
                     COUNT(*) AS applied,
                     ROUND(100.0 * SUM(CASE WHEN outcome_stage = 'viewed' THEN 1 ELSE 0 END) / COUNT(*), 1) AS view_rate,
                     ROUND(100.0 * SUM(CASE WHEN outcome_stage = 'interview_request' THEN 1 ELSE 0 END) / COUNT(*), 1) AS interview_rate
@@ -2194,10 +2106,11 @@ class SQLiteManager:
                 GROUP BY month
                 ORDER BY month DESC
             """
-            cursor.execute(monthly_query)
+            )
             by_month = [dict(row) for row in cursor.fetchall()]
 
-            archetype_query = """
+            cursor.execute(
+                """
                 SELECT
                     archetype_primary,
                     COUNT(*) AS applied,
@@ -2206,10 +2119,11 @@ class SQLiteManager:
                 WHERE market_intelligence_only = 0
                 GROUP BY archetype_primary
             """
-            cursor.execute(archetype_query)
+            )
             by_archetype = [dict(row) for row in cursor.fetchall()]
 
-            version_query = """
+            cursor.execute(
+                """
                 SELECT
                     resume_variant_sent AS archetype,
                     resume_commit_hash AS version,
@@ -2221,10 +2135,10 @@ class SQLiteManager:
                 WHERE market_intelligence_only = 0
                   AND date_applied IS NOT NULL
                 GROUP BY resume_variant_sent, resume_commit_hash
-                HAVING applications >= 1
+                HAVING COUNT(*) >= 1
                 ORDER BY archetype, version
             """
-            cursor.execute(version_query)
+            )
             by_version = [dict(row) for row in cursor.fetchall()]
 
             return {
@@ -2233,7 +2147,7 @@ class SQLiteManager:
                 "by_archetype": by_archetype,
                 "by_version": by_version,
             }
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error computing funnel metrics: {e}")
             return {
                 "overview": {},
@@ -2261,7 +2175,7 @@ class SQLiteManager:
                 INSERT INTO market_centroids (
                     archetype, window_start, window_end, centroid_vector,
                     jd_count, shift_from_previous, top_gained_terms, top_lost_terms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(archetype, window_start) DO UPDATE SET
                     window_end = excluded.window_end,
                     centroid_vector = excluded.centroid_vector,
@@ -2283,7 +2197,7 @@ class SQLiteManager:
             )
             self.conn.commit()
             return True
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error storing market centroid for {archetype}: {e}")
             self.conn.rollback()
             return False
@@ -2296,7 +2210,7 @@ class SQLiteManager:
                 """
                 SELECT *
                 FROM market_centroids
-                WHERE archetype = ?
+                WHERE archetype = %s
                 ORDER BY window_start DESC
                 LIMIT 1
             """,
@@ -2316,7 +2230,7 @@ class SQLiteManager:
                 data.get("top_lost_terms"), []
             )
             return data
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error fetching most recent centroid for {archetype}: {e}")
             return None
 
@@ -2328,7 +2242,7 @@ class SQLiteManager:
                 """
                 SELECT *
                 FROM market_centroids
-                WHERE archetype = ?
+                WHERE archetype = %s
                 ORDER BY window_start DESC
                 LIMIT 1 OFFSET 1
             """,
@@ -2342,7 +2256,7 @@ class SQLiteManager:
                 data.get("centroid_vector")
             )
             return data
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error fetching previous centroid for {archetype}: {e}")
             return None
 
@@ -2356,19 +2270,19 @@ class SQLiteManager:
                 """
                 SELECT embedding_vector
                 FROM jobs
-                WHERE archetype_primary = ?
-                  AND date(created_at) BETWEEN date(?) AND date(?)
+                WHERE archetype_primary = %s
+                  AND SUBSTRING(created_at, 1, 10) BETWEEN %s AND %s
                   AND embedding_vector IS NOT NULL
             """,
                 (archetype, window_start, window_end),
             )
-            vectors = []
+            vectors: List[List[float]] = []
             for row in cursor.fetchall():
-                decoded = self._deserialize_vector(row[0])
+                decoded = self._deserialize_vector(row.get("embedding_vector"))
                 if decoded:
                     vectors.append(decoded)
             return vectors
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error fetching embeddings for {archetype}: {e}")
             return []
 
@@ -2388,7 +2302,8 @@ class SQLiteManager:
                 INSERT INTO drift_alerts (
                     archetype, alert_type, metric_value,
                     threshold_value, details, acknowledged
-                ) VALUES (?, ?, ?, ?, ?, 0)
+                ) VALUES (%s, %s, %s, %s, %s, 0)
+                RETURNING id
             """,
                 (
                     archetype,
@@ -2398,9 +2313,10 @@ class SQLiteManager:
                     json.dumps(details or {}),
                 ),
             )
+            row = cursor.fetchone()
             self.conn.commit()
-            return int(cursor.lastrowid)
-        except sqlite3.Error as e:
+            return int(row["id"]) if row else None
+        except Exception as e:
             logger.error(f"Error creating drift alert: {e}")
             self.conn.rollback()
             return None
@@ -2419,10 +2335,10 @@ class SQLiteManager:
                 """
                 SELECT *
                 FROM drift_alerts
-                WHERE archetype = ?
-                  AND alert_type = ?
+                WHERE archetype = %s
+                  AND alert_type = %s
                   AND acknowledged = 0
-                  AND created_at >= ?
+                  AND created_at >= %s
                 ORDER BY created_at DESC
                 LIMIT 1
             """,
@@ -2434,7 +2350,7 @@ class SQLiteManager:
             data = dict(row)
             data["details"] = self._safe_json_load(data.get("details"), {})
             return data
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading unacknowledged alert: {e}")
             return None
 
@@ -2450,13 +2366,13 @@ class SQLiteManager:
                 ORDER BY created_at DESC
             """
             )
-            rows = []
+            rows: List[Dict] = []
             for row in cursor.fetchall():
                 data = dict(row)
                 data["details"] = self._safe_json_load(data.get("details"), {})
                 rows.append(data)
             return rows
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error reading drift alerts: {e}")
             return []
 
@@ -2465,106 +2381,26 @@ class SQLiteManager:
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "UPDATE drift_alerts SET acknowledged = 1 WHERE id = ?",
-                (alert_id,),
+                "UPDATE drift_alerts SET acknowledged = 1 WHERE id = %s",
+                (int(alert_id),),
             )
             self.conn.commit()
             return cursor.rowcount > 0
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error acknowledging alert {alert_id}: {e}")
             self.conn.rollback()
             return False
 
-    def close(self):
+    def close(self) -> None:
         """Close database connection."""
-        if self.conn:
-            self.conn.close()
-            logger.debug("Database connection closed")
+        try:
+            if self.conn:
+                self.conn.close()
+        finally:
+            logger.debug("Postgres connection closed")
 
-    def __del__(self):
-        """Cleanup on deletion."""
+    def __del__(self) -> None:
         try:
             self.close()
         except Exception:
             pass
-
-
-def get_db_manager(config: Optional[Dict] = None, allow_spool_fallback: bool = True):
-    """Return a database manager for the configured backend.
-
-    Backends:
-    - sqlite (default): ~/.ronin/data/ronin.db
-    - postgres: uses RONIN_DATABASE_DSN (or DATABASE_URL) or config.database.postgres.dsn
-    """
-    backend_env = (
-        os.environ.get("RONIN_DB_BACKEND")
-        or os.environ.get("RONIN_DATABASE_BACKEND")
-        or ""
-    )
-    cfg = config
-    if cfg is None:
-        try:
-            from ronin.config import load_config
-
-            cfg = load_config()
-        except Exception:
-            cfg = {}
-
-    backend = (
-        backend_env
-        or (cfg.get("database", {}) if isinstance(cfg, dict) else {}).get("backend")
-        or "sqlite"
-    )
-    backend = str(backend).strip().lower()
-
-    if backend in {"postgres", "postgresql", "pg"}:
-        db_cfg = cfg.get("database", {}) if isinstance(cfg, dict) else {}
-        postgres_cfg = db_cfg.get("postgres", {}) if isinstance(db_cfg, dict) else {}
-        dsn = (
-            os.environ.get("RONIN_DATABASE_DSN")
-            or os.environ.get("DATABASE_URL")
-            or (postgres_cfg.get("dsn") if isinstance(postgres_cfg, dict) else None)
-            or (db_cfg.get("dsn") if isinstance(db_cfg, dict) else None)
-        )
-        if not dsn:
-            raise ValueError(
-                "Postgres backend selected but DSN is missing. "
-                "Set RONIN_DATABASE_DSN (or DATABASE_URL), or configure database.postgres.dsn."
-            )
-
-        fallback_enabled = bool(
-            allow_spool_fallback
-            and (
-                postgres_cfg.get("fallback_to_spool", True)
-                if isinstance(postgres_cfg, dict)
-                else True
-            )
-        )
-
-        from ronin.db_postgres import PostgresManager
-
-        try:
-            return PostgresManager(dsn=str(dsn))
-        except (ValueError, RuntimeError):
-            raise
-        except Exception as exc:
-            if not fallback_enabled:
-                raise
-
-            from pathlib import Path
-
-            from ronin.config import get_ronin_home
-
-            spool_raw = (
-                db_cfg.get("spool_path") if isinstance(db_cfg, dict) else None
-            ) or "data/spool.db"
-            spool_path = Path(str(spool_raw)).expanduser()
-            if not spool_path.is_absolute():
-                spool_path = (get_ronin_home() / spool_path).resolve()
-            logger.warning(
-                "Postgres unavailable; falling back to local spool DB. "
-                f"spool={spool_path} error={exc}"
-            )
-            return SQLiteManager(db_path=str(spool_path))
-
-    return SQLiteManager()

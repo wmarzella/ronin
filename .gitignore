@@ -67,3 +67,13 @@ mcp_agent_mail/
 chrome_profile/
 chrome_profile_*/
 uv.lock
+
+# Nested resume repo (managed separately)
+resume/
+
+# Gmail OAuth credentials (user-provided)
+credentials.json
+
+# Local labeling outputs (generated)
+labels_sample*.jsonl
+*.disagreements.jsonl

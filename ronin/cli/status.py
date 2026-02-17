@@ -55,15 +55,57 @@ def _get_db_stats() -> Dict:
         Empty dict on failure.
     """
     try:
-        from ronin.db import SQLiteManager
+        from ronin.db import get_db_manager
 
-        db = SQLiteManager()
+        db = get_db_manager()
         stats = db.get_jobs_stats()
         db.close()
         return stats
     except Exception as exc:
         logger.debug(f"Could not read database: {exc}")
         return {}
+
+
+def _get_outcome_stats() -> Dict:
+    """Query tracked application outcomes for feedback-loop visibility."""
+    try:
+        from ronin.db import get_db_manager
+
+        db = get_db_manager()
+        stats = db.get_application_outcome_stats()
+        db.close()
+        return stats
+    except Exception as exc:
+        logger.debug(f"Could not read outcome stats: {exc}")
+        return {}
+
+
+def _get_queue_summary() -> Dict:
+    """Read queue grouping for archetype batch workflows."""
+    try:
+        from ronin.db import get_db_manager
+
+        db = get_db_manager()
+        summary = db.get_queue_summary()
+        db.close()
+        return summary
+    except Exception as exc:
+        logger.debug(f"Could not read queue summary: {exc}")
+        return {}
+
+
+def _get_active_alert_count() -> int:
+    """Count unacknowledged drift alerts."""
+    try:
+        from ronin.db import get_db_manager
+
+        db = get_db_manager()
+        count = len(db.get_unacknowledged_alerts())
+        db.close()
+        return count
+    except Exception as exc:
+        logger.debug(f"Could not read drift alerts: {exc}")
+        return 0
 
 
 def _get_last_run(log_name: str) -> Optional[str]:
@@ -151,6 +193,69 @@ def show_status() -> None:
 
     console.print(db_table)
     console.print()
+
+    # -- Queue summary -------------------------------------------------------
+    queue_summary = _get_queue_summary()
+    if queue_summary:
+        queue_table = Table(
+            title="Application Queue",
+            show_header=False,
+            border_style="dim",
+            pad_edge=False,
+        )
+        queue_table.add_column("Key", style="dim", min_width=20)
+        queue_table.add_column("Value")
+
+        for key in ["builder", "fixer", "operator", "translator", "market_intel"]:
+            values = queue_summary.get(key)
+            if not values:
+                continue
+            label = "Market intel" if key == "market_intel" else key.capitalize()
+            queue_table.add_row(
+                f"{label}",
+                f"{int(values.get('count', 0))} (avg {float(values.get('avg_score', 0.0)):.2f})",
+            )
+
+        active_alerts = _get_active_alert_count()
+        queue_table.add_row("Active drift alerts", str(active_alerts))
+
+        console.print(queue_table)
+        console.print()
+
+    # -- Outcome feedback stats ----------------------------------------------
+    outcome_stats = _get_outcome_stats()
+    if outcome_stats.get("total", 0) > 0:
+        feedback_table = Table(
+            title="Feedback Loop",
+            show_header=False,
+            border_style="dim",
+            pad_edge=False,
+        )
+        feedback_table.add_column("Key", style="dim", min_width=20)
+        feedback_table.add_column("Value")
+
+        feedback_table.add_row(
+            "Tracked applications", str(outcome_stats.get("total", 0))
+        )
+        feedback_table.add_row(
+            "Resolved outcomes", str(outcome_stats.get("resolved", 0))
+        )
+        feedback_table.add_row(
+            "Positive outcomes",
+            str(outcome_stats.get("positive", 0)),
+        )
+        feedback_table.add_row(
+            "Positive rate",
+            f"{outcome_stats.get('conversion_rate', 0.0):.1%}",
+        )
+
+        by_outcome = outcome_stats.get("by_outcome", {})
+        for key in ["PENDING", "REJECTION", "CALLBACK", "INTERVIEW", "OFFER"]:
+            if key in by_outcome:
+                feedback_table.add_row(f"  {key}", str(by_outcome[key]))
+
+        console.print(feedback_table)
+        console.print()
 
     # -- Schedule ------------------------------------------------------------
     schedule_table = Table(

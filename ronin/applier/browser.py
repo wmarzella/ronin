@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import shutil
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -86,6 +87,9 @@ class ChromeDriver:
         """Initialize the ChromeDriver."""
         self.driver = None
         self.is_logged_in = False
+        # True only after we verify Seek login in *this* process.
+        # The persisted login_state.json is treated as a hint, not a guarantee.
+        self._login_verified_this_session = False
         self.user_data_dir = None
         self._profile_lock = None
         ronin_dir = Path.home() / ".ronin"
@@ -215,15 +219,17 @@ class ChromeDriver:
         return self.user_data_dir
 
     def _test_browser_functionality(self) -> bool:
-        """Test if browser can render basic content."""
+        """Test if browser is responsive without leaving a visible test page."""
         if not self.driver:
             return False
 
         try:
-            self.driver.get("data:text/html,<html><body><h1>Test</h1></body></html>")
-            time.sleep(1)
-            if "Test" not in self.driver.page_source:
-                logger.warning("Browser failed rendering test")
+            self.driver.get("about:blank")
+            WebDriverWait(self.driver, 5).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            if self.driver.current_url != "about:blank":
+                logger.warning("Browser failed blank-page readiness test")
                 return False
             logger.debug("Browser passed functionality test")
             return True
@@ -400,9 +406,12 @@ class ChromeDriver:
         js_check = """
         return !!(
             document.querySelector('a[href*="/account"]') ||
+            document.querySelector('a[href*="my-activity"]') ||
             document.querySelector('[data-automation="account-menu"]') ||
             document.querySelector('button[aria-label*="Account"]') ||
-            document.body.innerText.includes('Sign out')
+            ((document.body && (document.body.innerText || ''))
+                .toLowerCase()
+                .includes('sign out'))
         );
         """
         try:
@@ -410,11 +419,37 @@ class ChromeDriver:
         except Exception:
             return False
 
-    def login_seek(self):
-        """Handle Seek.com.au login process."""
-        if self.is_logged_in:
-            logger.debug("Already logged in (from saved state), skipping login check")
-            return
+    def login_seek(self, timeout_seconds: int = 300) -> bool:
+        """Ensure the Seek.com.au session is authenticated.
+
+        This uses the persisted Chrome profile (``--user-data-dir``) as the
+        source of truth for session cookies.
+
+        Behaviour:
+        - If Seek is already logged in, returns immediately.
+        - If Seek is not logged in:
+          - Interactive (TTY): opens the browser and waits for login to be
+            completed (no "Press Enter" prompt).
+          - Non-interactive: fails fast and returns False.
+
+        Args:
+            timeout_seconds: Max seconds to wait for interactive login.
+
+        Returns:
+            True if login is verified, False otherwise.
+        """
+        if self.is_logged_in and self._login_verified_this_session:
+            logger.debug("Already logged in (verified this session)")
+            return True
+
+        if not self.driver:
+            self.initialize()
+
+        interactive = False
+        try:
+            interactive = sys.stdin.isatty()
+        except Exception:
+            interactive = False
 
         try:
             # Quick navigation to check login status
@@ -429,33 +464,62 @@ class ChromeDriver:
             # Check if already logged in
             if self._check_logged_in_indicators():
                 self.is_logged_in = True
+                self._login_verified_this_session = True
                 logger.debug("User is already logged in to Seek")
                 self.save_login_state()
-                return
+                return True
 
-            # If no logged-in indicators found, proceed with manual login
+            # Not logged in. In unattended runs we cannot block for login.
+            self.is_logged_in = False
+            self._login_verified_this_session = False
+            if not interactive:
+                logger.error(
+                    "Seek login required but no interactive TTY detected. "
+                    "Run `ronin apply` once in a terminal to refresh the session."
+                )
+                return False
+
+            # Interactive: ask user to complete login, but continue automatically.
             from rich.console import Console
 
             console = Console()
             console.print("\n[bold yellow]Login Required[/bold yellow]")
             console.print(
-                "[dim]1. Please sign in with Google in the browser window[/dim]"
+                "[dim]1. Please sign in (e.g. with Google) in the browser window[/dim]"
             )
-            console.print("[dim]2. Make sure you're fully logged in[/dim]")
-            console.print("[dim]3. Press Enter when ready to continue...[/dim]")
-            input()
+            console.print(
+                "[dim]2. Ronin will auto-continue once login is detected[/dim]"
+            )
+            console.print(
+                f"[dim]3. Waiting up to {timeout_seconds}s for login...[/dim]"
+            )
 
-            # Verify login was successful
-            if self._check_logged_in_indicators():
-                self.is_logged_in = True
-                logger.debug("Successfully logged into Seek")
-                self.save_login_state()
-                return
+            # Nudge the user to the sign-in flow if available.
+            try:
+                self.driver.get("https://www.seek.com.au/sign-in")
+            except Exception:
+                pass
 
-            # If we get here, login verification failed but continue anyway
-            logger.warning("Could not verify login status, but continuing...")
-            self.is_logged_in = True
-            self.save_login_state()
+            start = time.time()
+            last_notice = 0
+            while time.time() - start < timeout_seconds:
+                if self._check_logged_in_indicators():
+                    self.is_logged_in = True
+                    self._login_verified_this_session = True
+                    logger.debug("Successfully logged into Seek")
+                    self.save_login_state()
+                    return True
+
+                elapsed = int(time.time() - start)
+                if elapsed - last_notice >= 15:
+                    last_notice = elapsed
+                    console.print(f"[dim]...still waiting ({elapsed}s)[/dim]")
+                time.sleep(2)
+
+            logger.error(f"Timed out waiting for Seek login after {timeout_seconds}s")
+            self.is_logged_in = False
+            self._login_verified_this_session = False
+            return False
 
         except Exception as e:
             raise Exception(f"Failed to login to Seek: {str(e)}")

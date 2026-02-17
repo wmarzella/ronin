@@ -106,34 +106,108 @@ professional:
 # -----------------------------------------------------------------------------
 # Resume Profiles
 # -----------------------------------------------------------------------------
-# Define multiple resume profiles for different types of roles.
+# Define multiple resume profiles for different hiring signals.
 # During job search, the AI automatically picks the best resume for each job.
 #
 # Each profile needs:
 #   - name: unique identifier (used internally)
 #   - file: filename in ~/.ronin/resumes/ (plain text resume content)
 #   - seek_resume_id: UUID from Seek.com.au (set during board setup)
+#   - archetype: expansion | consolidation | adaptation | aspiration
+#   - hiring_signal: what this resume variant should signal to hiring teams
+#   - role_title_patterns: title fragments that should bias selection
+#   - keyword_bias: domain keywords that should bias selection
 #   - use_when: rules for when this resume should be selected
 #
 resumes:
-  - name: "default"
-    file: "default.txt"                      # File in ~/.ronin/resumes/
+  - name: "expansion"
+    file: "expansion.txt"                    # File in ~/.ronin/resumes/
     seek_resume_id: ""                       # Set during: ronin setup --step boards
+    archetype: "expansion"
+    hiring_signal: "Greenfield execution and growth-stage delivery"
+    role_title_patterns:
+      - "growth engineer"
+      - "founding engineer"
+      - "platform engineer"
+      - "senior software engineer"
+    keyword_bias:
+      - "greenfield"
+      - "scale"
+      - "growth"
+      - "launch"
+      - "0 to 1"
+    use_when:
+      job_types:
+        - "full-time"
+        - "permanent"
+      description: "Use when roles emphasise scaling product or teams."
+
+  - name: "consolidation"
+    file: "consolidation.txt"
+    seek_resume_id: ""
+    archetype: "consolidation"
+    hiring_signal: "Reliability, optimisation, and operational excellence"
+    role_title_patterns:
+      - "site reliability"
+      - "backend engineer"
+      - "senior engineer"
+      - "platform"
+    keyword_bias:
+      - "stability"
+      - "reliability"
+      - "optimisation"
+      - "incident"
+      - "performance"
     use_when:
       job_types:
         - "full-time"
         - "contract"
-      description: "General purpose resume for most applications"
+      description: "Use when role signal is improving mature systems."
 
-  # Example: add a second resume for contract work
-  # - name: "contract"
-  #   file: "contract.txt"
-  #   seek_resume_id: ""
-  #   use_when:
-  #     job_types:
-  #       - "contract"
-  #       - "consulting"
-  #     description: "Emphasises relevant experience for contract/consulting roles"
+  - name: "adaptation"
+    file: "adaptation.txt"
+    seek_resume_id: ""
+    archetype: "adaptation"
+    hiring_signal: "Transformation, migrations, and cross-domain adaptation"
+    role_title_patterns:
+      - "integration"
+      - "migration"
+      - "modernisation"
+      - "transformation"
+    keyword_bias:
+      - "migration"
+      - "legacy"
+      - "modernization"
+      - "change"
+      - "integration"
+    use_when:
+      job_types:
+        - "contract"
+        - "consulting"
+        - "full-time"
+      description: "Use when teams need change leadership across systems."
+
+  - name: "aspiration"
+    file: "aspiration.txt"
+    seek_resume_id: ""
+    archetype: "aspiration"
+    hiring_signal: "Leadership trajectory, strategy, and architecture ownership"
+    role_title_patterns:
+      - "staff engineer"
+      - "principal"
+      - "tech lead"
+      - "engineering manager"
+    keyword_bias:
+      - "architecture"
+      - "strategy"
+      - "leadership"
+      - "mentoring"
+      - "roadmap"
+    use_when:
+      job_types:
+        - "full-time"
+        - "permanent"
+      description: "Use when role signal is scope, influence, and ownership."
 
 # -----------------------------------------------------------------------------
 # Cover Letter Configuration

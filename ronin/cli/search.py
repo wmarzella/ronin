@@ -14,9 +14,10 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from ronin.application_queue import ApplicationQueueService
 from ronin.analyzer import JobAnalyzerService
 from ronin.config import get_ronin_home, load_config, load_env
-from ronin.db import SQLiteManager
+from ronin.db import get_db_manager
 from ronin.scraper import SeekScraper
 
 console = Console()
@@ -53,12 +54,36 @@ def main():
 
     try:
         config = load_config()
+
+        # Best-effort: flush any locally spooled rows into Postgres first.
+        try:
+            from ronin.spool_sync import sync_spool_to_remote
+
+            spool_stats = sync_spool_to_remote(config=config, dry_run=False)
+            if (
+                spool_stats
+                and not spool_stats.get("skipped")
+                and not spool_stats.get("error")
+            ):
+                touched = (
+                    int(spool_stats.get("jobs_inserted", 0) or 0)
+                    + int(spool_stats.get("jobs_status_updated", 0) or 0)
+                    + int(spool_stats.get("applications_inserted", 0) or 0)
+                    + int(spool_stats.get("variants_upserted", 0) or 0)
+                )
+                if touched:
+                    console.print(
+                        "[dim]Flushed local spool to remote Postgres before search.[/dim]"
+                    )
+        except Exception:
+            pass
+
         keywords = config["search"]["keywords"]
         console.print(f"[dim]Searching for {len(keywords)} keyword groups...[/dim]\n")
 
         scraper = SeekScraper(config)
         analyzer = JobAnalyzerService(config)
-        db_manager = SQLiteManager()
+        db_manager = get_db_manager(config=config)
 
         # Phase 1: Scrape job previews
         with console.status("[bold green]Scraping job listings from Seek..."):
@@ -182,6 +207,13 @@ def main():
         with console.status("[bold green]Saving to database..."):
             results = db_manager.batch_insert_jobs(analyzed_jobs)
 
+        queue_stats = {}
+        with console.status("[bold green]Scoring queue alignment..."):
+            queue_service = ApplicationQueueService(
+                config=config, db_manager=db_manager
+            )
+            queue_stats = queue_service.recompute_queue()
+
         # Results summary
         console.print()
         table = Table(title="Results", show_header=False, border_style="dim")
@@ -195,6 +227,16 @@ def main():
         )
         if results["errors"] > 0:
             table.add_row("Errors", f"[red]{results['errors']}[/red]")
+
+        if queue_stats:
+            table.add_row(
+                "Queue evaluated",
+                str(queue_stats.get("evaluated", 0)),
+            )
+            table.add_row(
+                "Market-intel only",
+                str(queue_stats.get("market_intelligence", 0)),
+            )
 
         console.print(table)
         console.print()

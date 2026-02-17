@@ -30,9 +30,11 @@ Set it up once. Run one command. Wake up to a full pipeline of applications.
 2. **Score** -- Each job description is sent to an AI model (Claude or GPT)
    which scores it 0-100 based on your skills, preferences, and red flags.
 3. **Select** -- The AI picks the best resume profile for each job and
-   classifies it (contract vs. long-term).
+   classifies it (contract vs. long-term), with archetype-aware matching.
 4. **Apply** -- Ronin opens Chrome, navigates to each job, writes a cover
    letter, answers screening questions, and submits the application.
+5. **Learn** -- Ronin can parse Gmail outcomes (rejection, callback,
+   interview, offer) and feed conversion signals back into future scoring.
 
 ---
 
@@ -236,12 +238,13 @@ profile has:
 - **name** -- a short identifier like "default" or "contract_senior"
 - **file** -- a plain-text version of your resume, stored in `~/.ronin/resumes/`
 - **seek_resume_id** -- the UUID of the matching resume on Seek.com.au
+- **archetype** -- one of `expansion`, `consolidation`, `adaptation`, `aspiration`
 - **use_when** -- rules for when this resume should be selected (e.g. use for
   contract roles, use for full-time roles)
 
-When the AI analyses a job, it reads the `use_when` rules and picks the best
-resume automatically. If no rule matches, it falls back to the resume named
-"default".
+When the AI analyses a job, it combines archetype hints, `use_when` rules,
+and listing context to pick the best resume automatically. If AI returns an
+invalid resume name, Ronin falls back to deterministic matching.
 
 **How to find your Seek resume ID:** When you are on the Seek resume page, the
 URL contains the resume UUID. The setup wizard will guide you through this.
@@ -327,6 +330,42 @@ Shows a dashboard of your current pipeline: how many jobs have been discovered,
 how many are pending application, how many have been applied to, and error
 counts.
 
+### Closed-Loop Feedback (Gmail Outcomes)
+
+```
+ronin feedback sync
+ronin feedback report
+ronin feedback review
+```
+
+`feedback sync` scans Gmail for outcome signals and records events such as:
+
+- `REJECTION`
+- `CALLBACK`
+- `INTERVIEW`
+- `OFFER`
+
+Ronin matches those outcomes against your submitted applications and stores the
+resume profile + role context. `feedback report` then shows which resume
+archetypes, keyword patterns, and role-title families are converting.
+
+If an email can't be confidently matched to an application, it is marked for
+manual review. Use `feedback review` to confirm matches and apply the outcome to
+the correct application record.
+
+To enable this:
+
+- Create OAuth Desktop credentials for the Gmail API and download `credentials.json`
+- Place it in the project root, or set `tracking.gmail.credentials_path` in `~/.ronin/config.yaml`
+- Run `ronin feedback sync` once interactively to complete OAuth; a refresh token is stored at
+  `~/.ronin/gmail_token.json` (or `tracking.gmail.token_path`)
+
+Headless worker note:
+
+- If you're running the worker on a server without a browser, set `tracking.gmail.auth_mode: console`
+  (or `RONIN_GMAIL_AUTH_MODE=console`) and run `ronin feedback sync` once in a terminal to complete
+  the one-time auth.
+
 ### Automated Search (Set and Forget)
 
 Instead of manually running `search` every few hours, you can install a
@@ -359,6 +398,43 @@ To remove the schedule:
 ronin schedule uninstall
 ```
 
+### Split Local/Remote (Postgres)
+
+If you want a split setup (local machine does Seek; a VPS runs the worker loop),
+point both machines at the same Postgres database:
+
+1) Create a Postgres database and user (managed Postgres or on your VPS)
+2) On both machines:
+   - Set `database.backend: postgres` in `~/.ronin/config.yaml` (or set `RONIN_DB_BACKEND=postgres`)
+   - Set `RONIN_DATABASE_DSN=postgresql://...` in `~/.ronin/.env`
+3) On the VPS: run `ronin worker start`
+4) On your local machine: run `ronin search` and `ronin apply batch <archetype>`
+
+Offline buffer:
+
+- If Postgres is temporarily unreachable, the local agent falls back to a local
+  SQLite spool DB (default: `~/.ronin/data/spool.db`, configurable via
+  `database.spool_path`).
+- When Postgres is reachable again, Ronin will best-effort flush the spool on
+  the next `ronin search` / `ronin apply` / `ronin run`, and you can also force a
+  flush with `ronin apply sync`.
+
+Security note: don't expose Postgres publicly. Prefer a private network (e.g.
+Tailscale) or strict firewall rules.
+
+### Backups
+
+Create a point-in-time backup (SQLite file copy or Postgres `pg_dump`):
+
+```
+ronin db backup
+```
+
+Restore (high level):
+
+- SQLite: replace `~/.ronin/data/ronin.db` with a `ronin-sqlite-*.db` backup
+- Postgres: restore into an empty database with `psql < ronin-postgres-*.sql`
+
 ---
 
 ## Configuration
@@ -389,6 +465,7 @@ Runtime settings that control how Ronin operates (not who you are):
 |---|---|
 | `search` | Keywords, location, date range, salary filter |
 | `application` | Salary for forms, batch limit |
+| `database` | SQLite vs Postgres backend |
 | `scraping` | Rate limiting, timeouts, quick-apply filter |
 | `analysis` | Minimum score threshold |
 | `proxy` | HTTP/HTTPS proxy (optional) |
@@ -396,6 +473,7 @@ Runtime settings that control how Ronin operates (not who you are):
 | `boards` | Which job boards are enabled |
 | `browser` | Chrome mode and path override |
 | `schedule` | Scheduling interval |
+| `tracking` | Gmail outcome tracking and sync limits |
 | `timeouts` | HTTP, page load, element wait timeouts |
 | `retry` | Max attempts, backoff, jitter |
 
@@ -408,9 +486,14 @@ API keys and credentials. Never committed to version control.
 ```
 ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
 OPENAI_API_KEY=sk-your-key-here
-GOOGLE_EMAIL=your.email@gmail.com
-GOOGLE_PASSWORD=your-google-password
+
+# Optional: use a remote Postgres DB (for split local/remote worker)
+# RONIN_DB_BACKEND=postgres
+# RONIN_DATABASE_DSN=postgresql://user:password@host:5432/ronin
 ```
+
+Seek login is handled via an interactive Chrome session; Ronin does not store your
+Seek/Google credentials in `.env`.
 
 See `.env.example` in the repo root for the full list.
 
@@ -520,6 +603,7 @@ ronin/
     main.py             # CLI entry point (argparse dispatcher)
     search.py           # Search command implementation
     apply.py            # Apply command implementation
+    feedback.py         # Gmail sync + outcome analytics commands
     setup.py            # Interactive setup wizard
     status.py           # Status dashboard
   scraper/
@@ -542,6 +626,9 @@ ronin/
     job_analysis.py     # Static job analysis prompt (fallback)
     cover_letter.py     # Cover letter prompt template
     form_fields.py      # Screening question prompt template
+  feedback/
+    gmail_tracker.py    # Parses Gmail and records outcomes
+    analysis.py         # Conversion metrics for feedback loop
   config.py             # Configuration loading (~/.ronin/config.yaml)
   profile.py            # Profile loading and validation (Pydantic)
   db.py                 # SQLite database manager

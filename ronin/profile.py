@@ -5,6 +5,7 @@ the RONIN_HOME environment variable) and validates it against the expected
 schema using Pydantic v2 models.
 """
 
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -79,12 +80,25 @@ class ResumeUseWhen(BaseModel):
     description: str = ""
 
 
+class ResumeArchetype(str, Enum):
+    """Resume framing archetypes for software engineering roles."""
+
+    EXPANSION = "expansion"
+    CONSOLIDATION = "consolidation"
+    ADAPTATION = "adaptation"
+    ASPIRATION = "aspiration"
+
+
 class ResumeProfile(BaseModel):
     """A single resume profile entry."""
 
     name: str = "default"
     file: str = ""
     seek_resume_id: str = ""
+    archetype: ResumeArchetype = ResumeArchetype.ADAPTATION
+    hiring_signal: str = ""
+    role_title_patterns: List[str] = Field(default_factory=list)
+    keyword_bias: List[str] = Field(default_factory=list)
     use_when: ResumeUseWhen = Field(default_factory=ResumeUseWhen)
 
 
@@ -174,6 +188,109 @@ class Profile(BaseModel):
             if r.name == "default":
                 return r
         return self.resumes[0]
+
+    def recommend_resume_for_listing(
+        self,
+        job_title: str,
+        job_description: str = "",
+        work_type: str = "",
+    ) -> ResumeProfile:
+        """Recommend the best resume profile for a listing via rule scoring.
+
+        This provides deterministic fallback matching when AI resume selection
+        is unavailable or low-confidence.
+
+        Args:
+            job_title: Listing title.
+            job_description: Full listing description.
+            work_type: Listing work type (e.g. contract/full-time).
+
+        Returns:
+            Best-scoring ``ResumeProfile`` based on role/title/keyword signals.
+
+        Raises:
+            ValueError: If no resumes are configured.
+        """
+        if not self.resumes:
+            raise ValueError(
+                "No resumes configured in profile. Run `ronin setup` to add one."
+            )
+
+        title_text = (job_title or "").lower()
+        combined_text = f"{job_title or ''} {job_description or ''}".lower()
+        work_type_text = (work_type or "").lower()
+
+        archetype_keywords: Dict[ResumeArchetype, List[str]] = {
+            ResumeArchetype.EXPANSION: [
+                "growth",
+                "scale",
+                "greenfield",
+                "launch",
+                "hypergrowth",
+            ],
+            ResumeArchetype.CONSOLIDATION: [
+                "stability",
+                "reliability",
+                "optimization",
+                "maintain",
+                "refactor",
+                "platform",
+            ],
+            ResumeArchetype.ADAPTATION: [
+                "migration",
+                "modernisation",
+                "modernization",
+                "transformation",
+                "integration",
+                "change",
+            ],
+            ResumeArchetype.ASPIRATION: [
+                "staff",
+                "principal",
+                "lead",
+                "architecture",
+                "strategy",
+                "mentoring",
+            ],
+        }
+
+        best = self.resumes[0]
+        best_score = float("-inf")
+
+        for resume in self.resumes:
+            score = 0.0
+
+            if resume.name == "default":
+                score += 0.1
+
+            for job_type in resume.use_when.job_types:
+                jt = job_type.lower().strip()
+                if jt and jt in work_type_text:
+                    score += 2.0
+
+            for pattern in resume.role_title_patterns:
+                normalized = pattern.lower().strip()
+                if not normalized:
+                    continue
+                if normalized in title_text:
+                    score += 3.0
+                elif normalized in combined_text:
+                    score += 1.5
+
+            for keyword in resume.keyword_bias:
+                normalized = keyword.lower().strip()
+                if normalized and normalized in combined_text:
+                    score += 1.0
+
+            for keyword in archetype_keywords.get(resume.archetype, []):
+                if keyword in combined_text:
+                    score += 0.5
+
+            if score > best_score:
+                best = resume
+                best_score = score
+
+        return best
 
     def get_resume_text(self, resume_name: str) -> str:
         """Read the plain-text content of a resume file.
