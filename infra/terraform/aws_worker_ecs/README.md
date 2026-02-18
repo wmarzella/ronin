@@ -40,9 +40,11 @@ After `terraform apply`, use the output `ecr_repository_url`:
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin <ecr_repository_url>
 
-docker build -t ronin-worker:latest .
-docker tag ronin-worker:latest <ecr_repository_url>:latest
-docker push <ecr_repository_url>:latest
+# On Apple Silicon, ECS Fargate typically expects linux/amd64 unless you
+# configure ARM64 runtime. Build an amd64 image explicitly.
+docker buildx build --platform linux/amd64 \
+  -t <ecr_repository_url>:latest \
+  --push .
 ```
 
 ## Secrets
