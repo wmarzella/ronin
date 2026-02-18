@@ -2755,22 +2755,58 @@ def get_db_manager(config: Optional[Dict] = None, allow_spool_fallback: bool = T
             if not isinstance(payload, dict):
                 return None
 
+            env_username = (
+                os.environ.get("RONIN_DATABASE_USERNAME")
+                or os.environ.get("RONIN_DATABASE_USER")
+                or os.environ.get("RONIN_DB_USER")
+                or os.environ.get("PGUSER")
+            )
+            env_password = (
+                os.environ.get("RONIN_DATABASE_PASSWORD")
+                or os.environ.get("RONIN_DB_PASSWORD")
+                or os.environ.get("PGPASSWORD")
+            )
+            env_host = (
+                os.environ.get("RONIN_DATABASE_HOST")
+                or os.environ.get("RONIN_DB_HOST")
+                or os.environ.get("PGHOST")
+            )
+            env_port = (
+                os.environ.get("RONIN_DATABASE_PORT")
+                or os.environ.get("RONIN_DB_PORT")
+                or os.environ.get("PGPORT")
+            )
+            env_dbname = (
+                os.environ.get("RONIN_DATABASE_NAME")
+                or os.environ.get("RONIN_DB_NAME")
+                or os.environ.get("PGDATABASE")
+            )
+
             username = (
                 payload.get("username")
                 or payload.get("user")
                 or payload.get("db_user")
                 or payload.get("dbUsername")
+                or env_username
             )
-            password = payload.get("password") or payload.get("pass")
+            password = payload.get("password") or payload.get("pass") or env_password
             host = (
-                payload.get("host") or payload.get("hostname") or payload.get("address")
+                payload.get("host")
+                or payload.get("hostname")
+                or payload.get("address")
+                or env_host
             )
-            port = payload.get("port") or 5432
+            port_raw = payload.get("port") or env_port or 5432
+            try:
+                port = int(port_raw)
+            except Exception:
+                port = 5432
             dbname = (
                 payload.get("dbname")
                 or payload.get("db_name")
                 or payload.get("database")
                 or payload.get("dbName")
+                or env_dbname
             )
             if not (username and password and host and dbname):
                 return None
@@ -2784,10 +2820,14 @@ def get_db_manager(config: Optional[Dict] = None, allow_spool_fallback: bool = T
                 user_q = str(username)
                 pass_q = str(password)
 
-            return (
-                f"postgresql://{user_q}:{pass_q}@{str(host)}:{int(port)}/{str(dbname)}"
-                "?sslmode=require"
+            sslmode = (
+                os.environ.get("RONIN_DATABASE_SSLMODE")
+                or os.environ.get("PGSSLMODE")
+                or "require"
             )
+            sslmode = str(sslmode).strip() or "require"
+
+            return f"postgresql://{user_q}:{pass_q}@{str(host)}:{port}/{str(dbname)}?sslmode={sslmode}"
 
         dsn = (
             os.environ.get("RONIN_DATABASE_DSN")

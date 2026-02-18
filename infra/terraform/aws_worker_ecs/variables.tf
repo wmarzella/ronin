@@ -30,6 +30,23 @@ variable "rds_secret_arn" {
   description = "Secrets Manager ARN for the RDS master user secret (injected as RONIN_RDS_SECRET_JSON)"
 }
 
+variable "db_host" {
+  type        = string
+  description = "Postgres host (RDS endpoint)"
+}
+
+variable "db_port" {
+  type        = number
+  description = "Postgres port"
+  default     = 5432
+}
+
+variable "db_name" {
+  type        = string
+  description = "Database name"
+  default     = "ronin"
+}
+
 variable "worker_image_tag" {
   type        = string
   description = "ECR image tag to run"

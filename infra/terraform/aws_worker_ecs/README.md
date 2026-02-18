@@ -9,7 +9,7 @@ It is designed to connect to the existing RDS instance created by
 
 ## Prerequisites
 
-- An existing Ronin RDS stack applied (you need: VPC ID, subnet IDs, RDS SG ID, RDS secret ARN).
+- An existing Ronin RDS stack applied (you need: VPC ID, subnet IDs, RDS SG ID, RDS secret ARN, and the RDS endpoint hostname).
 - A worker container image pushed to ECR.
 - Gmail OAuth files available as Secrets Manager secrets (optional until you enable Gmail).
 
@@ -22,12 +22,14 @@ terraform plan \
   -var 'vpc_id=...' \
   -var 'subnet_ids=["subnet-...","subnet-..."]' \
   -var 'rds_security_group_id=sg-...' \
-  -var 'rds_secret_arn=arn:aws:secretsmanager:...'
+  -var 'rds_secret_arn=arn:aws:secretsmanager:...' \
+  -var 'db_host=<rds_endpoint_hostname>'
 terraform apply \
   -var 'vpc_id=...' \
   -var 'subnet_ids=["subnet-...","subnet-..."]' \
   -var 'rds_security_group_id=sg-...' \
-  -var 'rds_secret_arn=arn:aws:secretsmanager:...'
+  -var 'rds_secret_arn=arn:aws:secretsmanager:...' \
+  -var 'db_host=<rds_endpoint_hostname>'
 ```
 
 ## Image Build + Push

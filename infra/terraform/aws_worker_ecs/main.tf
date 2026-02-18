@@ -12,6 +12,18 @@ locals {
       value = "postgres"
     },
     {
+      name  = "RONIN_DATABASE_HOST"
+      value = var.db_host
+    },
+    {
+      name  = "RONIN_DATABASE_PORT"
+      value = tostring(var.db_port)
+    },
+    {
+      name  = "RONIN_DATABASE_NAME"
+      value = var.db_name
+    },
+    {
       name  = "RONIN_GMAIL_ENABLED"
       value = var.gmail_enabled ? "1" : "0"
     },
