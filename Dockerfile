@@ -14,6 +14,7 @@ COPY pyproject.toml README.md config.yaml /app/
 COPY ronin /app/ronin
 
 RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
     && pip install --no-cache-dir .
 
 ENTRYPOINT ["ronin"]
