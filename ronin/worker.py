@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Dict
 
@@ -12,12 +13,37 @@ from ronin.db import get_db_manager
 from ronin.feedback import GmailOutcomeTracker, run_weekly_drift_jobs
 
 
+def _env_flag(name: str):
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
 def poll_and_process_gmail() -> Dict[str, int]:
     """Run one Gmail polling + parsing sync cycle."""
     load_env()
-    config = load_config()
-    gmail_cfg = config.get("tracking", {}).get("gmail", {})
-    if not gmail_cfg.get("enabled", False):
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+
+    gmail_cfg = (
+        config.get("tracking", {}).get("gmail", {}) if isinstance(config, dict) else {}
+    )
+    enabled = bool(gmail_cfg.get("enabled", False))
+    enabled_override = _env_flag("RONIN_GMAIL_ENABLED")
+    if enabled_override is None:
+        enabled_override = _env_flag("RONIN_TRACKING_GMAIL_ENABLED")
+    if enabled_override is not None:
+        enabled = enabled_override
+
+    if not enabled:
         logger.info("Gmail tracking disabled; skipping poll.")
         return {
             "emails_scanned": 0,
@@ -29,16 +55,36 @@ def poll_and_process_gmail() -> Dict[str, int]:
             "ignored": 0,
         }
 
+    query = (
+        os.environ.get("RONIN_GMAIL_QUERY") or gmail_cfg.get("query") or "newer_than:1d"
+    )
+    credentials_path = (
+        os.environ.get("RONIN_GMAIL_CREDENTIALS_PATH")
+        or gmail_cfg.get("credentials_path")
+        or None
+    )
+    token_path = (
+        os.environ.get("RONIN_GMAIL_TOKEN_PATH") or gmail_cfg.get("token_path") or None
+    )
+
     db = get_db_manager(config=config, allow_spool_fallback=False)
     try:
         tracker = GmailOutcomeTracker(
             db_manager=db,
-            credentials_path=gmail_cfg.get("credentials_path"),
-            token_path=gmail_cfg.get("token_path"),
-            query=gmail_cfg.get("query", "newer_than:1d"),
+            credentials_path=credentials_path,
+            token_path=token_path,
+            query=query,
             auth_mode=gmail_cfg.get("auth_mode", "auto"),
         )
-        max_messages = int(gmail_cfg.get("max_messages_per_sync", 250))
+        max_messages_raw = (
+            os.environ.get("RONIN_GMAIL_MAX_MESSAGES")
+            or gmail_cfg.get("max_messages_per_sync")
+            or 250
+        )
+        try:
+            max_messages = int(max_messages_raw)
+        except Exception:
+            max_messages = 250
         stats = tracker.sync(max_messages=max_messages, dry_run=False)
         logger.info(f"Gmail worker sync complete: {stats}")
         return stats

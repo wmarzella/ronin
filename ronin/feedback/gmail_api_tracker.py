@@ -243,6 +243,57 @@ class GmailOutcomeTracker:
                 "google-auth-oauthlib, and google-api-python-client."
             ) from exc
 
+        def _maybe_write_json_from_env(
+            path: Path,
+            json_key: str,
+            b64_key: str,
+            label: str,
+        ) -> None:
+            if path.exists():
+                return
+
+            raw = os.environ.get(json_key) or ""
+            if not raw:
+                b64 = os.environ.get(b64_key) or ""
+                if b64:
+                    try:
+                        raw = base64.b64decode(b64).decode("utf-8")
+                    except Exception:
+                        try:
+                            raw = base64.urlsafe_b64decode(b64 + "==").decode(
+                                "utf-8", errors="replace"
+                            )
+                        except Exception:
+                            raw = ""
+
+            if not raw:
+                return
+
+            try:
+                json.loads(raw)
+            except Exception as exc:
+                raise ValueError(f"{label} is not valid JSON") from exc
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(raw, encoding="utf-8")
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
+
+        _maybe_write_json_from_env(
+            path=self.credentials_path,
+            json_key="RONIN_GMAIL_CREDENTIALS_JSON",
+            b64_key="RONIN_GMAIL_CREDENTIALS_B64",
+            label="RONIN_GMAIL_CREDENTIALS_JSON",
+        )
+        _maybe_write_json_from_env(
+            path=self.token_path,
+            json_key="RONIN_GMAIL_TOKEN_JSON",
+            b64_key="RONIN_GMAIL_TOKEN_B64",
+            label="RONIN_GMAIL_TOKEN_JSON",
+        )
+
         if not self.credentials_path.exists():
             raise FileNotFoundError(
                 "Gmail credentials.json not found. Place OAuth credentials at "

@@ -1,0 +1,26 @@
+.git
+.github
+.beads
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Local credentials / secrets
+.env
+credentials.json
+gmail_token.json
+
+# Terraform
+infra/terraform/**/.terraform/
+infra/terraform/**/*.tfstate
+infra/terraform/**/*.tfstate.*
+infra/terraform/**/crash.log
+infra/terraform/**/crash.*.log
+infra/terraform/**/.terraformrc
+infra/terraform/**/terraform.rc
+infra/terraform/**/.terraform.tfvars
+infra/terraform/**/*.tfvars

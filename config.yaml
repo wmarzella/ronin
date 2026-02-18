@@ -165,6 +165,63 @@ resume_variants:
       markdown: "markdown/data_engineer_translator.md"
 
 # -----------------------------------------------------------------------------
+# Seek Profile Automation (Optional / Advanced)
+# -----------------------------------------------------------------------------
+# This is separate from selecting which uploaded resume is attached per
+# application. It switches your *Seek profile copy* (headline/summary/skills)
+# so recruiter profile views match the archetype batch you are applying with.
+#
+# Requirements:
+# - Playwright installed: `pip install playwright`
+# - Browser installed: `playwright install chromium`
+#
+# Tip: run `ronin profile debug` to open Playwright Inspector and copy stable
+# locators into `seek_profile.automation.selectors` if the defaults don't work.
+seek_profile:
+  automation:
+    enabled: false
+    headless: false
+    channel: "chrome"                        # Prefer real Chrome for persisted sessions
+    user_data_dir: "~/.ronin/chrome_profile" # Reuse Selenium login cookies if possible
+    profile_url: "https://www.seek.com.au/profile"
+    timeout_ms: 45000
+    login_timeout_sec: 300
+    slow_mo_ms: 0
+    jitter: true
+    min_delay_sec: 0.1
+    max_delay_sec: 0.5
+
+    # Optional: override individual element locators when Seek UI changes.
+    # Keys used by the automation:
+    # - edit_profile_button
+    # - headline_edit_button / headline_input / headline_save_button
+    # - summary_edit_button / summary_input / summary_save_button
+    # - skills_edit_button / skills_input / skills_save_button
+    # - skills_clear_button / skills_remove_buttons
+    selectors: {}
+
+  templates:
+    builder:
+      headline: ""
+      summary: ""
+      skills: []
+      # headline_file: "assets/seek_profile/builder_headline.txt"
+      # summary_file: "assets/seek_profile/builder_summary.txt"
+      # skills_file: "assets/seek_profile/builder_skills.txt"
+    fixer:
+      headline: ""
+      summary: ""
+      skills: []
+    operator:
+      headline: ""
+      summary: ""
+      skills: []
+    translator:
+      headline: ""
+      summary: ""
+      skills: []
+
+# -----------------------------------------------------------------------------
 # Timeouts & Retry
 # -----------------------------------------------------------------------------
 timeouts:

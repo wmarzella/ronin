@@ -1339,6 +1339,28 @@ class ReviewScreen(Screen):
                     },
                 },
             },
+            "seek_profile": {
+                "automation": {
+                    "enabled": False,
+                    "headless": False,
+                    "channel": "chrome",
+                    "user_data_dir": "~/.ronin/chrome_profile",
+                    "profile_url": "https://www.seek.com.au/profile",
+                    "timeout_ms": 45000,
+                    "login_timeout_sec": 300,
+                    "slow_mo_ms": 0,
+                    "jitter": True,
+                    "min_delay_sec": 0.1,
+                    "max_delay_sec": 0.5,
+                    "selectors": {},
+                },
+                "templates": {
+                    "builder": {"headline": "", "summary": "", "skills": []},
+                    "fixer": {"headline": "", "summary": "", "skills": []},
+                    "operator": {"headline": "", "summary": "", "skills": []},
+                    "translator": {"headline": "", "summary": "", "skills": []},
+                },
+            },
             "timeouts": {
                 "http_request": 30,
                 "page_load": 45,

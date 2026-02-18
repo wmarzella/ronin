@@ -2746,12 +2746,70 @@ def get_db_manager(config: Optional[Dict] = None, allow_spool_fallback: bool = T
     if backend in {"postgres", "postgresql", "pg"}:
         db_cfg = cfg.get("database", {}) if isinstance(cfg, dict) else {}
         postgres_cfg = db_cfg.get("postgres", {}) if isinstance(db_cfg, dict) else {}
+
+        def _dsn_from_secret_json(secret_json: str) -> Optional[str]:
+            try:
+                payload = json.loads(secret_json or "")
+            except Exception:
+                return None
+            if not isinstance(payload, dict):
+                return None
+
+            username = (
+                payload.get("username")
+                or payload.get("user")
+                or payload.get("db_user")
+                or payload.get("dbUsername")
+            )
+            password = payload.get("password") or payload.get("pass")
+            host = (
+                payload.get("host") or payload.get("hostname") or payload.get("address")
+            )
+            port = payload.get("port") or 5432
+            dbname = (
+                payload.get("dbname")
+                or payload.get("db_name")
+                or payload.get("database")
+                or payload.get("dbName")
+            )
+            if not (username and password and host and dbname):
+                return None
+
+            try:
+                from urllib.parse import quote
+
+                user_q = quote(str(username), safe="")
+                pass_q = quote(str(password), safe="")
+            except Exception:
+                user_q = str(username)
+                pass_q = str(password)
+
+            return (
+                f"postgresql://{user_q}:{pass_q}@{str(host)}:{int(port)}/{str(dbname)}"
+                "?sslmode=require"
+            )
+
         dsn = (
             os.environ.get("RONIN_DATABASE_DSN")
             or os.environ.get("DATABASE_URL")
             or (postgres_cfg.get("dsn") if isinstance(postgres_cfg, dict) else None)
             or (db_cfg.get("dsn") if isinstance(db_cfg, dict) else None)
         )
+
+        if not dsn:
+            secret_json = (
+                os.environ.get("RONIN_RDS_SECRET_JSON")
+                or os.environ.get("RONIN_DATABASE_SECRET_JSON")
+                or os.environ.get("RONIN_RDS_SECRET")
+                or ""
+            )
+            if secret_json:
+                dsn = _dsn_from_secret_json(secret_json)
+
+        if dsn and str(dsn).lstrip().startswith("{"):
+            converted = _dsn_from_secret_json(str(dsn))
+            if converted:
+                dsn = converted
         if not dsn:
             raise ValueError(
                 "Postgres backend selected but DSN is missing. "

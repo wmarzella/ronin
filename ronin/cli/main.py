@@ -14,6 +14,8 @@ Dispatches subcommands to their respective modules:
     ronin apply sync
     ronin apply versions
     ronin apply alerts
+    ronin profile set <archetype>
+    ronin profile debug
     ronin run
     ronin feedback sync [--max-messages N] [--dry-run]
     ronin feedback report [--min-samples N]
@@ -104,6 +106,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--yes",
         action="store_true",
         help="Skip confirmation prompt",
+    )
+    apply_batch.add_argument(
+        "--auto-profile",
+        action="store_true",
+        help="Auto-switch Seek profile to this archetype before applying (Playwright)",
+    )
+    apply_batch.add_argument(
+        "--dry-run-profile",
+        action="store_true",
+        help="When used with --auto-profile, do not save profile changes",
     )
 
     apply_sub.add_parser("status", help="Show funnel metrics and conversion rates")
@@ -215,6 +227,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show all unacknowledged drift alerts",
     )
 
+    # -- profile -------------------------------------------------------------
+    profile_parser = subparsers.add_parser(
+        "profile",
+        help="Automate Seek profile switching for batching",
+    )
+    profile_sub = profile_parser.add_subparsers(dest="profile_action")
+
+    profile_set = profile_sub.add_parser(
+        "set",
+        help="Set your Seek profile to an archetype template",
+    )
+    profile_set.add_argument(
+        "archetype",
+        choices=["builder", "fixer", "operator", "translator"],
+        help="Template archetype to apply",
+    )
+    profile_set.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    profile_set.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not save changes (best-effort)",
+    )
+
+    profile_debug = profile_sub.add_parser(
+        "debug",
+        help="Open Playwright Inspector to discover selectors",
+    )
+    profile_debug.add_argument(
+        "--url",
+        type=str,
+        default="",
+        help="Optional URL to open (defaults to seek_profile.automation.profile_url)",
+    )
+
     # -- status --------------------------------------------------------------
     subparsers.add_parser("status", help="Show status dashboard")
 
@@ -316,6 +366,8 @@ def _build_parser() -> argparse.ArgumentParser:
     worker_sub = worker_parser.add_subparsers(dest="worker_action")
     worker_sub.add_parser("start", help="Start APScheduler worker loop")
     worker_sub.add_parser("once", help="Run one worker cycle immediately")
+    worker_sub.add_parser("gmail", help="Run one Gmail polling + parsing cycle")
+    worker_sub.add_parser("drift", help="Run drift checks once")
 
     # -- config --------------------------------------------------------------
     config_parser = subparsers.add_parser(
@@ -491,6 +543,8 @@ def main() -> None:
                 archetype=getattr(args, "archetype"),
                 limit=int(getattr(args, "limit", 0) or 0),
                 yes=bool(getattr(args, "yes", False)),
+                auto_profile=bool(getattr(args, "auto_profile", False)),
+                dry_run_profile=bool(getattr(args, "dry_run_profile", False)),
             )
             if rc != 0:
                 sys.exit(rc)
@@ -573,6 +627,27 @@ def main() -> None:
             parser.parse_args(["apply", "--help"])
             return
 
+    elif args.command == "profile":
+        from ronin.cli.profile_ops import debug as profile_debug
+        from ronin.cli.profile_ops import set_profile
+
+        action = getattr(args, "profile_action", None)
+        if action == "set":
+            rc = set_profile(
+                archetype=str(getattr(args, "archetype")),
+                yes=bool(getattr(args, "yes", False)),
+                dry_run=bool(getattr(args, "dry_run", False)),
+            )
+            if rc != 0:
+                sys.exit(rc)
+        elif action == "debug":
+            rc = profile_debug(url=str(getattr(args, "url", "")))
+            if rc != 0:
+                sys.exit(rc)
+        else:
+            parser.parse_args(["profile", "--help"])
+            return
+
     elif args.command == "run":
         from ronin.cli.run import main as run_main
 
@@ -631,7 +706,12 @@ def main() -> None:
     elif args.command == "worker":
         from rich.console import Console
 
-        from ronin.worker import run_worker_once, run_worker_scheduler
+        from ronin.worker import (
+            poll_and_process_gmail,
+            run_weekly_drift,
+            run_worker_once,
+            run_worker_scheduler,
+        )
 
         console = Console(stderr=True)
         action = getattr(args, "worker_action", None)
@@ -646,6 +726,22 @@ def main() -> None:
             console.print("[bold blue]Running one worker cycle...[/bold blue]")
             try:
                 result = run_worker_once()
+                console.print(result)
+            except Exception as exc:
+                console.print(f"[red]Worker run failed:[/red] {exc}")
+                sys.exit(1)
+        elif action == "gmail":
+            console.print("[bold blue]Running Gmail worker cycle...[/bold blue]")
+            try:
+                result = poll_and_process_gmail()
+                console.print(result)
+            except Exception as exc:
+                console.print(f"[red]Worker run failed:[/red] {exc}")
+                sys.exit(1)
+        elif action == "drift":
+            console.print("[bold blue]Running drift worker cycle...[/bold blue]")
+            try:
+                result = run_weekly_drift()
                 console.print(result)
             except Exception as exc:
                 console.print(f"[red]Worker run failed:[/red] {exc}")

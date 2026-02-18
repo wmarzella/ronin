@@ -761,7 +761,13 @@ def sync_queue(limit: int = 0) -> int:
         service.close()
 
 
-def batch_apply(archetype: str, limit: int = 0, yes: bool = False) -> int:
+def batch_apply(
+    archetype: str,
+    limit: int = 0,
+    yes: bool = False,
+    auto_profile: bool = False,
+    dry_run_profile: bool = False,
+) -> int:
     """Apply to all queued jobs for a selected archetype."""
     load_env()
     config = load_config()
@@ -796,13 +802,62 @@ def batch_apply(archetype: str, limit: int = 0, yes: bool = False) -> int:
         )
     console.print(preview)
 
-    console.print(
-        "\n[bold]Seek profile state check:[/bold] "
-        f"set your Seek profile to [cyan]{archetype}[/cyan] before continuing."
+    seek_auto_enabled = bool(
+        (config.get("seek_profile", {}) or {})
+        .get("automation", {})
+        .get("enabled", False)
     )
+    should_auto_profile = bool(auto_profile or seek_auto_enabled)
+
+    if should_auto_profile:
+        console.print(
+            "\n[bold]Seek profile automation:[/bold] "
+            f"Ronin will switch your Seek profile to [cyan]{archetype}[/cyan] before applying."
+        )
+        console.print(
+            "[dim]If this is your first run, a browser window will open for login. "
+            "Keep it open until Ronin finishes the update.[/dim]"
+        )
+    else:
+        console.print(
+            "\n[bold]Seek profile state check:[/bold] "
+            f"set your Seek profile to [cyan]{archetype}[/cyan] before continuing."
+        )
+
     if not yes and not Confirm.ask("Continue with this batch?", default=False):
         console.print("[yellow]Batch cancelled.[/yellow]")
         return 0
+
+    if should_auto_profile:
+        try:
+            from ronin.seek.profile_updater import (
+                SeekProfileUpdater,
+                load_template_from_config,
+            )
+
+            updater = SeekProfileUpdater(config=config)
+            template = load_template_from_config(config, archetype)
+            updater.apply_archetype(
+                archetype=archetype,
+                template=template,
+                dry_run=bool(dry_run_profile),
+                allow_manual_login=True,
+            )
+            if dry_run_profile:
+                console.print(
+                    "[yellow]Profile automation dry-run complete (no changes saved).[/yellow]"
+                )
+            else:
+                console.print("[green]Seek profile updated.[/green]")
+        except Exception as exc:
+            console.print(
+                f"[red]Seek profile automation failed.[/red] {str(exc)[:220]}"
+            )
+            console.print(
+                "[dim]Tip: run `ronin profile debug` to discover selectors and configure "
+                "seek_profile.automation.selectors in ~/.ronin/config.yaml.[/dim]"
+            )
+            return 1
 
     batch_id = db.create_application_batch(archetype=archetype, profile_state=archetype)
     if batch_id is None:

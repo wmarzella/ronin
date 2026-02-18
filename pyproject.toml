@@ -60,6 +60,11 @@ dev = [
     "pytest>=7.0.0",
 ]
 
+# Optional: Seek profile switching automation (Playwright)
+seek_profile = [
+    "playwright>=1.42.0",
+]
+
 [project.scripts]
 ronin = "ronin.cli.main:main"
 

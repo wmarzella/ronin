@@ -410,6 +410,14 @@ point both machines at the same Postgres database:
 3) On the VPS: run `ronin worker start`
 4) On your local machine: run `ronin search` and `ronin apply batch <archetype>`
 
+Seek profile batching note:
+
+- By default, `ronin apply batch <archetype>` assumes you manually switched your Seek profile copy to match the archetype.
+- To automate the profile switch, configure `seek_profile` in `~/.ronin/config.yaml`, then run:
+  - `ronin profile set builder` (one-off), or
+  - `ronin apply batch builder --auto-profile`
+  - If Seek UI changes, use `ronin profile debug` to open Playwright Inspector and capture selectors.
+
 Offline buffer:
 
 - If Postgres is temporarily unreachable, the local agent falls back to a local
