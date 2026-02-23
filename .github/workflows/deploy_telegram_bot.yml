@@ -22,11 +22,11 @@ on:
       telegram_bot_token_ref:
         description: SSM parameter name or Secrets Manager id/arn for bot token
         required: false
-        default: /ronin/telegram/bot_token
+        default: ""
       telegram_chat_id_ref:
         description: SSM parameter name or Secrets Manager id/arn for chat id
         required: false
-        default: /ronin/telegram/chat_id
+        default: ""
       image_tag:
         description: Image tag override (default is commit SHA)
         required: false
