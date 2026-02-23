@@ -60,3 +60,55 @@ To enable Gmail polling, set:
 - `gmail_enabled=true`
 - `enable_gmail_schedule=true`
 - `gmail_credentials_secret_arn` + `gmail_token_secret_arn`
+
+## GitHub Action: Telegram Bot Deploy
+
+This repo includes `.github/workflows/deploy_telegram_bot.yml` which deploys
+an always-on ECS service running:
+
+```bash
+ronin telegram bot
+```
+
+The workflow uses AWS CLI to resolve Telegram secrets from SSM Parameter Store
+or Secrets Manager before registering the task definition.
+
+### 1) Store Telegram secrets in AWS
+
+```bash
+aws ssm put-parameter \
+  --name /ronin/telegram/bot_token \
+  --type SecureString \
+  --value "<telegram_bot_token>" \
+  --overwrite
+
+aws ssm put-parameter \
+  --name /ronin/telegram/chat_id \
+  --type SecureString \
+  --value "<telegram_chat_id>" \
+  --overwrite
+```
+
+### 2) Configure GitHub
+
+- Repository secret: `AWS_DEPLOY_ROLE_ARN`
+  - IAM role trusted by GitHub OIDC
+  - Needs permissions for ECR push, ECS task/service updates, EventBridge read,
+    and reading SSM/SecretsManager refs.
+- Optional repository variables:
+  - `AWS_REGION` (default `us-east-1`)
+  - `RONIN_NAME_PREFIX` (default `ronin`)
+  - `RONIN_ECR_REPOSITORY` (defaults to `<prefix>-worker`)
+  - `RONIN_ECS_CLUSTER` (defaults to `<prefix>-worker`)
+  - `RONIN_BASE_TASK_FAMILY` (defaults to `<prefix>-worker`)
+  - `RONIN_TELEGRAM_TASK_FAMILY` (defaults to `<prefix>-telegram-bot`)
+  - `RONIN_TELEGRAM_SERVICE_NAME` (defaults to `<prefix>-telegram-bot`)
+  - `RONIN_TELEGRAM_BOT_TOKEN_REF` (default `/ronin/telegram/bot_token`)
+  - `RONIN_TELEGRAM_CHAT_ID_REF` (default `/ronin/telegram/chat_id`)
+  - `RONIN_WORKER_SUBNET_IDS` (CSV fallback if auto-discovery fails)
+  - `RONIN_WORKER_SECURITY_GROUP_IDS` (CSV fallback if auto-discovery fails)
+
+### 3) Run deploy
+
+- Manually trigger `Deploy Telegram Bot` from the Actions tab, or
+- Push to `main` touching bot/deploy files and let the workflow run automatically.

@@ -16,9 +16,14 @@ Dispatches subcommands to their respective modules:
     ronin apply alerts
     ronin profile set <archetype>
     ronin profile debug
+    ronin resume build <archetype|all>
+    ronin resume upload <archetype|all> [--force-new]
+    ronin resume debug [--url URL]
     ronin run
     ronin feedback sync [--max-messages N] [--dry-run]
     ronin feedback report [--min-samples N]
+    ronin telegram bot [--token TOKEN] [--chat-id CHAT_ID]
+    ronin telegram send-status [--token TOKEN] [--chat-id CHAT_ID]
     ronin worker start
     ronin worker once
     ronin config set --key KEY --value VALUE
@@ -265,8 +270,128 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional URL to open (defaults to seek_profile.automation.profile_url)",
     )
 
+    # -- resume --------------------------------------------------------------
+    resume_parser = subparsers.add_parser(
+        "resume",
+        help="Build resume variant PDFs and upload/replace them in Seek",
+    )
+    resume_sub = resume_parser.add_subparsers(dest="resume_action")
+
+    resume_build = resume_sub.add_parser(
+        "build",
+        help="Build resume PDFs from the nested resume/ repo",
+    )
+    resume_build.add_argument(
+        "archetype",
+        choices=["builder", "fixer", "operator", "translator", "all"],
+        help="Which variant(s) to build",
+    )
+
+    resume_upload = resume_sub.add_parser(
+        "upload",
+        help="Upload or replace resume PDFs in Seek (Playwright)",
+    )
+    resume_upload.add_argument(
+        "archetype",
+        choices=["builder", "fixer", "operator", "translator", "all"],
+        help="Which variant(s) to upload",
+    )
+    resume_upload.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    resume_upload.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not upload or write config/profile files",
+    )
+    resume_upload.add_argument(
+        "--force-new",
+        action="store_true",
+        help="Always upload a new resume (do not attempt replace)",
+    )
+    resume_upload.add_argument(
+        "--purge-existing",
+        action="store_true",
+        help="Delete all existing Seek resumés before uploading",
+    )
+    resume_upload.add_argument(
+        "--no-set-mapping",
+        action="store_true",
+        help="Do not update resume_variants.seek_profile_mapping in ~/.ronin/config.yaml",
+    )
+
+    resume_debug = resume_sub.add_parser(
+        "debug",
+        help="Open Playwright Inspector on the Seek resumes page",
+    )
+    resume_debug.add_argument(
+        "--url",
+        type=str,
+        default="",
+        help="Optional URL to open (defaults to seek_profile.automation.resumes_url)",
+    )
+
     # -- status --------------------------------------------------------------
     subparsers.add_parser("status", help="Show status dashboard")
+
+    # -- telegram ------------------------------------------------------------
+    telegram_parser = subparsers.add_parser(
+        "telegram",
+        help="Telegram bot and push notifications",
+    )
+    telegram_sub = telegram_parser.add_subparsers(dest="telegram_action")
+
+    telegram_bot = telegram_sub.add_parser(
+        "bot",
+        help="Run long-poll Telegram bot",
+    )
+    telegram_bot.add_argument(
+        "--token",
+        type=str,
+        default="",
+        help="Telegram bot token (fallback: env/config)",
+    )
+    telegram_bot.add_argument(
+        "--chat-id",
+        type=str,
+        default="",
+        help="Restrict bot replies to one chat id (recommended)",
+    )
+    telegram_bot.add_argument(
+        "--poll-timeout",
+        type=int,
+        default=45,
+        help="Long-poll timeout seconds (default: 45)",
+    )
+    telegram_bot.add_argument(
+        "--once",
+        action="store_true",
+        help="Process at most one polling cycle and exit",
+    )
+
+    telegram_send = telegram_sub.add_parser(
+        "send-status",
+        help="Send current status snapshot to Telegram",
+    )
+    telegram_send.add_argument(
+        "--token",
+        type=str,
+        default="",
+        help="Telegram bot token (fallback: env/config)",
+    )
+    telegram_send.add_argument(
+        "--chat-id",
+        type=str,
+        default="",
+        help="Target chat id (fallback: env/config)",
+    )
+    telegram_send.add_argument(
+        "--no-concerns",
+        action="store_true",
+        help="Send snapshot without concern summary",
+    )
 
     # -- run -----------------------------------------------------------------
     subparsers.add_parser(
@@ -653,6 +778,48 @@ def main() -> None:
 
         run_main()
 
+    elif args.command == "resume":
+        from ronin.cli.resume_ops import (
+            build_pdfs,
+            debug as resume_debug,
+            upload_variants,
+        )
+
+        action = getattr(args, "resume_action", None)
+        archetype = str(getattr(args, "archetype", "") or "").strip().lower()
+        if action == "build":
+            archetypes = (
+                ["builder", "fixer", "operator", "translator"]
+                if archetype == "all"
+                else [archetype]
+            )
+            rc = build_pdfs(archetypes=archetypes)
+            if rc != 0:
+                sys.exit(rc)
+        elif action == "upload":
+            archetypes = (
+                ["builder", "fixer", "operator", "translator"]
+                if archetype == "all"
+                else [archetype]
+            )
+            rc = upload_variants(
+                archetypes=archetypes,
+                dry_run=bool(getattr(args, "dry_run", False)),
+                yes=bool(getattr(args, "yes", False)),
+                force_new=bool(getattr(args, "force_new", False)),
+                purge_existing=bool(getattr(args, "purge_existing", False)),
+                set_mapping=not bool(getattr(args, "no_set_mapping", False)),
+            )
+            if rc != 0:
+                sys.exit(rc)
+        elif action == "debug":
+            rc = resume_debug(url=str(getattr(args, "url", "")))
+            if rc != 0:
+                sys.exit(rc)
+        else:
+            parser.parse_args(["resume", "--help"])
+            return
+
     elif args.command == "feedback":
         from ronin.cli.feedback import (
             review_manual_matches,
@@ -754,6 +921,31 @@ def main() -> None:
         from ronin.cli.status import show_status
 
         show_status()
+
+    elif args.command == "telegram":
+        from ronin.cli.telegram_ops import run_bot, send_status_update
+
+        action = getattr(args, "telegram_action", None)
+        if action == "bot":
+            rc = run_bot(
+                token=str(getattr(args, "token", "") or ""),
+                chat_id=str(getattr(args, "chat_id", "") or ""),
+                poll_timeout=int(getattr(args, "poll_timeout", 45) or 45),
+                once=bool(getattr(args, "once", False)),
+            )
+            if rc != 0:
+                sys.exit(rc)
+        elif action == "send-status":
+            rc = send_status_update(
+                token=str(getattr(args, "token", "") or ""),
+                chat_id=str(getattr(args, "chat_id", "") or ""),
+                with_concerns=not bool(getattr(args, "no_concerns", False)),
+            )
+            if rc != 0:
+                sys.exit(rc)
+        else:
+            parser.parse_args(["telegram", "--help"])
+            return
 
     elif args.command == "config":
         if args.config_action == "set":
