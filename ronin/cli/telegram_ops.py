@@ -404,6 +404,55 @@ def _build_pending_insight_line(breakdown: Dict[str, int]) -> str:
     return "Pending jobs are split across queue gates."
 
 
+def _format_pending_reasons_compact(breakdown: Dict[str, int]) -> str:
+    labels = [
+        ("market_intelligence_only", "market-intel hold"),
+        ("manual_apply_required", "manual only"),
+        ("needs_review", "needs review"),
+        ("application_error_retry", "retry"),
+        ("ready_queue", "ready"),
+    ]
+    parts: List[str] = []
+    for key, label in labels:
+        count = _to_int(breakdown.get(key))
+        if count > 0:
+            parts.append(f"{count} {label}")
+    return ", ".join(parts) if parts else "none"
+
+
+def _build_concerns_summary_line(snapshot: Dict) -> str:
+    queue = snapshot.get("queue_summary", {})
+    funnel = snapshot.get("funnel_metrics", {}).get("overview", {})
+    alerts = snapshot.get("alerts", [])
+
+    auto_queue = sum(
+        _to_int((queue.get(key) or {}).get("count"))
+        for key in ["builder", "fixer", "operator", "translator"]
+    )
+    market_intel = _to_int((queue.get("market_intel") or {}).get("count"))
+    queue_total = auto_queue + market_intel
+
+    notes: List[str] = []
+    if alerts:
+        notes.append(f"{len(alerts)} drift alert(s)")
+    if auto_queue == 0:
+        notes.append("auto-apply queue empty")
+    if queue_total >= 5 and market_intel / max(1, queue_total) >= 0.7:
+        notes.append("most pending jobs are intel-hold")
+
+    total_applied = _to_int(funnel.get("total_applied"))
+    responses = _to_int(funnel.get("any_response"))
+    interviews = _to_int(funnel.get("interviews"))
+    if total_applied >= 15 and interviews == 0:
+        notes.append("no interviews with 15+ applications")
+    if total_applied >= 20 and responses == 0:
+        notes.append("no responses with 20+ applications")
+
+    if not notes:
+        return "- Risk: no critical concerns"
+    return "- Risk: " + " | ".join(notes[:3])
+
+
 def _collect_snapshot() -> Dict:
     db = get_db_manager()
     try:
@@ -497,71 +546,64 @@ def _build_status_message(snapshot: Dict) -> str:
     positive_rate = _to_float(outcome.get("conversion_rate")) * 100.0
     pending = _collect_pending_not_applied_breakdown()
     pending_total = _to_int(pending.get("total_pending"))
+    pending_reasons = _format_pending_reasons_compact(pending)
 
-    last_job = _safe_dt(snapshot.get("last_job_at"))
-    last_apply = _safe_dt(snapshot.get("last_apply_at"))
     today_start, today_end = _window_bounds(1)
     week_start, week_end = _window_bounds(7)
     today_stats = _collect_window_stats(today_start, today_end)
     week_stats = _collect_window_stats(week_start, week_end)
 
     lines = [
-        "Ronin Status Update",
+        f"Ronin check-in ({today_start.date().isoformat()})",
         (
-            f"Today ({today_start.date().isoformat()}): searched/new {today_stats['searched']}, "
-            f"queued {today_stats['queued']}, applied {today_stats['applied']}"
+            "- Today: "
+            f"{today_stats['searched']} new | "
+            f"{today_stats['queued']} queued | "
+            f"{today_stats['applied']} applied"
         ),
         (
-            "Last 7 days "
-            f"({week_start.date().isoformat()} to {(week_end.date() - timedelta(days=1)).isoformat()}): "
-            f"searched/new {week_stats['searched']}, queued {week_stats['queued']}, applied {week_stats['applied']}"
+            "- 7d pace: "
+            f"{week_stats['searched']} new | "
+            f"{week_stats['queued']} queued | "
+            f"{week_stats['applied']} applied"
         ),
-        f"Jobs: total {total_jobs}, discovered {discovered}, applied {applied_jobs}, app_error {app_error}",
-        f"Pending not applied yet: {pending_total}",
-        "Why not applied yet:",
+        f"- Pending: {pending_total} ({pending_reasons})",
+        f"- Queue now: {auto_queue} auto | {market_intel} intel-hold",
         (
-            "- market-intel hold: "
-            f"{_to_int(pending.get('market_intelligence_only'))} "
-            "(below queue-fit threshold)"
-        ),
-        (
-            "- manual apply required: "
-            f"{_to_int(pending.get('manual_apply_required'))} "
-            "(not quick-apply listings)"
+            "- Outcomes: "
+            f"{total_applied} apps | "
+            f"{response_rate:.1f}% response | "
+            f"{interview_rate:.1f}% interview"
         ),
         (
-            "- needs review: "
-            f"{_to_int(pending.get('needs_review'))} "
-            "(close-call selection)"
+            "- Inventory: "
+            f"{total_jobs} tracked | "
+            f"{discovered} discovered | "
+            f"{applied_jobs} applied | "
+            f"{app_error} app_error"
         ),
-        (f"- retry after app error: {_to_int(pending.get('application_error_retry'))}"),
-        (f"- ready in auto-apply queue: {_to_int(pending.get('ready_queue'))}"),
-        f"Queue: auto {auto_queue}, market-intel {market_intel}",
-        f"Funnel: applications {total_applied}, response {response_rate:.1f}%, interview {interview_rate:.1f}%",
-        f"Feedback: tracked {tracked}, resolved {resolved}, positive {positive_rate:.1f}%",
-        f"Alerts: {len(alerts)} open",
     ]
-    if last_job:
-        lines.append(f"Last job seen: {last_job.isoformat(timespec='seconds')}")
-    if last_apply:
-        lines.append(f"Last application: {last_apply.isoformat(timespec='seconds')}")
-    lines.append(f"Apply insight: {_build_pending_insight_line(pending)}")
+    if tracked > 0:
+        lines.append(
+            f"- Feedback: {resolved}/{tracked} resolved | {positive_rate:.1f}% positive"
+        )
+    if alerts:
+        lines.append(f"- Alerts: {len(alerts)} open")
+    lines.append(f"- Assistant note: {_build_pending_insight_line(pending)}")
     lines.append(
-        f"Positioning: {_positioning_statement(total_applied, response_rate, interview_rate)}"
+        "- Positioning: "
+        f"{_positioning_statement(total_applied, response_rate, interview_rate)}"
     )
     return "\n".join(lines)
 
 
 def _build_end_of_day_message(snapshot: Dict) -> str:
     today_start, _ = _window_bounds(1)
-    return "\n".join(
-        [
-            f"End-of-day update ({today_start.date().isoformat()})",
-            _build_status_message(snapshot),
-            "",
-            _build_concerns_message(snapshot),
-        ]
-    )
+    status_lines = _build_status_message(snapshot).splitlines()
+    if status_lines:
+        status_lines[0] = f"End-of-day check-in ({today_start.date().isoformat()})"
+    status_lines.append(_build_concerns_summary_line(snapshot))
+    return "\n".join(status_lines)
 
 
 def _maybe_send_daily_status_update(

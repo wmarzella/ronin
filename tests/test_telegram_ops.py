@@ -81,12 +81,41 @@ def test_status_message_includes_apply_blockers(monkeypatch) -> None:
 
     message = telegram_ops._build_status_message(snapshot)
 
-    assert "Why not applied yet:" in message
-    assert "- market-intel hold: 2" in message
-    assert "- manual apply required: 1" in message
-    assert "- needs review: 1" in message
-    assert "- ready in auto-apply queue: 1" in message
-    assert "Apply insight:" in message
+    assert "Ronin check-in" in message
+    assert (
+        "- Pending: 5 (2 market-intel hold, 1 manual only, 1 needs review, 1 ready)"
+        in message
+    )
+    assert "- Today: 4 new | 2 queued | 1 applied" in message
+    assert "- Assistant note:" in message
+
+
+def test_end_of_day_message_uses_brief_risk_line(monkeypatch) -> None:
+    monkeypatch.setattr(
+        telegram_ops,
+        "_build_status_message",
+        lambda _snapshot: "Ronin check-in (2026-03-02)\n- Pending: 2 (2 market-intel hold)",
+    )
+
+    snapshot = {
+        "queue_summary": {
+            "builder": {"count": 0},
+            "fixer": {"count": 0},
+            "operator": {"count": 0},
+            "translator": {"count": 0},
+            "market_intel": {"count": 2},
+        },
+        "funnel_metrics": {
+            "overview": {"total_applied": 25, "any_response": 0, "interviews": 0}
+        },
+        "alerts": [{"id": 1}],
+    }
+
+    message = telegram_ops._build_end_of_day_message(snapshot)
+
+    assert "End-of-day check-in" in message
+    assert "- Risk:" in message
+    assert "Concerns:" not in message
 
 
 def test_daily_status_sends_once_per_day(monkeypatch, tmp_path) -> None:
