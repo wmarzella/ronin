@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from datetime import datetime, time as dt_time, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
 from loguru import logger
 from rich.console import Console
 
-from ronin.config import load_config, load_env
+from ronin.config import get_ronin_home, load_config, load_env
 from ronin.db import get_db_manager
 
 
 console = Console()
+_daily_sent_cache: Dict[str, str] = {}
 
 
 def _nested_get(data: Dict, path: List[str], default=None):
@@ -152,6 +155,101 @@ def _coerce_local_naive(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
+def _is_truthy(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    return text not in {"0", "false", "no", "off"}
+
+
+def _parse_hhmm_or_default(
+    raw: str,
+    default_hour: int = 17,
+    default_minute: int = 0,
+) -> dt_time:
+    text = str(raw or "").strip()
+    if not text:
+        return dt_time(hour=default_hour, minute=default_minute)
+
+    parts = text.split(":")
+    if len(parts) != 2:
+        logger.warning(
+            f"Invalid RONIN_TELEGRAM_DAILY_STATUS_TIME={text!r}; using 17:00."
+        )
+        return dt_time(hour=default_hour, minute=default_minute)
+
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except Exception:
+        logger.warning(
+            f"Invalid RONIN_TELEGRAM_DAILY_STATUS_TIME={text!r}; using 17:00."
+        )
+        return dt_time(hour=default_hour, minute=default_minute)
+
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        logger.warning(
+            f"Out-of-range RONIN_TELEGRAM_DAILY_STATUS_TIME={text!r}; using 17:00."
+        )
+        return dt_time(hour=default_hour, minute=default_minute)
+
+    return dt_time(hour=hour, minute=minute)
+
+
+def _daily_status_state_path() -> Path:
+    return get_ronin_home() / "state" / "telegram_daily_status.json"
+
+
+def _read_daily_status_state() -> Dict[str, str]:
+    path = _daily_status_state_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text())
+    except Exception as exc:
+        logger.warning(f"Failed reading Telegram daily state at {path}: {exc}")
+        return {}
+    if not isinstance(payload, dict):
+        logger.warning(
+            f"Invalid Telegram daily state format at {path}; expected object."
+        )
+        return {}
+    state: Dict[str, str] = {}
+    for key, value in payload.items():
+        state[str(key)] = str(value)
+    return state
+
+
+def _write_daily_status_state(state: Dict[str, str]) -> None:
+    path = _daily_status_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True))
+    tmp_path.replace(path)
+
+
+def _last_daily_sent_for_chat(chat_id: str) -> str:
+    if not chat_id:
+        return ""
+    chat_key = str(chat_id)
+    cached = _daily_sent_cache.get(chat_key)
+    if cached:
+        return str(cached).strip()
+    return str(_read_daily_status_state().get(chat_key, "")).strip()
+
+
+def _mark_daily_sent_for_chat(chat_id: str, sent_date: str) -> None:
+    if not chat_id:
+        return
+    chat_key = str(chat_id)
+    _daily_sent_cache[chat_key] = str(sent_date)
+    state = _read_daily_status_state()
+    state[chat_key] = str(sent_date)
+    _write_daily_status_state(state)
+
+
 def _extract_row_value(row: object, key: str, index: int) -> object:
     if isinstance(row, dict):
         return row.get(key)
@@ -191,7 +289,9 @@ def _collect_window_stats(start: datetime, end: datetime) -> Dict[str, int]:
         for row in cursor.fetchall():
             created_raw = _extract_row_value(row, "created_at", 0)
             quick_apply = _to_int(_extract_row_value(row, "quick_apply", 2))
-            market_intel = _to_int(_extract_row_value(row, "market_intelligence_only", 3))
+            market_intel = _to_int(
+                _extract_row_value(row, "market_intelligence_only", 3)
+            )
 
             created_dt = _coerce_local_naive(_safe_dt(created_raw))
             if not created_dt or created_dt < start or created_dt >= end:
@@ -232,6 +332,76 @@ def _collect_window_stats(start: datetime, end: datetime) -> Dict[str, int]:
         return {"searched": searched, "queued": queued, "applied": applied}
     finally:
         db.close()
+
+
+def _collect_pending_not_applied_breakdown() -> Dict[str, int]:
+    """Explain why jobs are still pending instead of applied."""
+    db = get_db_manager()
+    try:
+        cursor = db.conn.cursor()
+        cursor.execute(
+            """
+            SELECT status, quick_apply, market_intelligence_only, selection_needs_review
+            FROM jobs
+            WHERE status IN ('DISCOVERED', 'APP_ERROR')
+        """
+        )
+
+        breakdown = {
+            "total_pending": 0,
+            "manual_apply_required": 0,
+            "market_intelligence_only": 0,
+            "needs_review": 0,
+            "application_error_retry": 0,
+            "ready_queue": 0,
+        }
+
+        for row in cursor.fetchall():
+            status = str(_extract_row_value(row, "status", 0) or "").strip().upper()
+            quick_apply = _to_int(_extract_row_value(row, "quick_apply", 1))
+            market_intel = _to_int(
+                _extract_row_value(row, "market_intelligence_only", 2)
+            )
+            needs_review = _to_int(_extract_row_value(row, "selection_needs_review", 3))
+
+            breakdown["total_pending"] += 1
+            if status == "APP_ERROR":
+                breakdown["application_error_retry"] += 1
+            elif quick_apply != 1:
+                breakdown["manual_apply_required"] += 1
+            elif market_intel == 1:
+                breakdown["market_intelligence_only"] += 1
+            elif needs_review == 1:
+                breakdown["needs_review"] += 1
+            else:
+                breakdown["ready_queue"] += 1
+
+        return breakdown
+    finally:
+        db.close()
+
+
+def _build_pending_insight_line(breakdown: Dict[str, int]) -> str:
+    total_pending = _to_int(breakdown.get("total_pending"))
+    ready_queue = _to_int(breakdown.get("ready_queue"))
+    needs_review = _to_int(breakdown.get("needs_review"))
+    market_intel = _to_int(breakdown.get("market_intelligence_only"))
+    manual_apply = _to_int(breakdown.get("manual_apply_required"))
+    app_error = _to_int(breakdown.get("application_error_retry"))
+
+    if total_pending == 0:
+        return "No jobs are waiting for apply right now."
+    if ready_queue > 0:
+        return f"{ready_queue} job(s) are ready in auto-apply queue now."
+    if needs_review > 0:
+        return "Some jobs need review before they can be applied."
+    if market_intel == total_pending:
+        return "All pending jobs are market-intel-only (tracked, not auto-applied)."
+    if manual_apply == total_pending:
+        return "All pending jobs require manual apply (not quick-apply)."
+    if app_error > 0:
+        return "There are failed application attempts waiting for retry."
+    return "Pending jobs are split across queue gates."
 
 
 def _collect_snapshot() -> Dict:
@@ -325,6 +495,8 @@ def _build_status_message(snapshot: Dict) -> str:
     tracked = _to_int(outcome.get("total"))
     resolved = _to_int(outcome.get("resolved"))
     positive_rate = _to_float(outcome.get("conversion_rate")) * 100.0
+    pending = _collect_pending_not_applied_breakdown()
+    pending_total = _to_int(pending.get("total_pending"))
 
     last_job = _safe_dt(snapshot.get("last_job_at"))
     last_apply = _safe_dt(snapshot.get("last_apply_at"))
@@ -334,7 +506,7 @@ def _build_status_message(snapshot: Dict) -> str:
     week_stats = _collect_window_stats(week_start, week_end)
 
     lines = [
-        "Ronin Snapshot",
+        "Ronin Status Update",
         (
             f"Today ({today_start.date().isoformat()}): searched/new {today_stats['searched']}, "
             f"queued {today_stats['queued']}, applied {today_stats['applied']}"
@@ -345,6 +517,25 @@ def _build_status_message(snapshot: Dict) -> str:
             f"searched/new {week_stats['searched']}, queued {week_stats['queued']}, applied {week_stats['applied']}"
         ),
         f"Jobs: total {total_jobs}, discovered {discovered}, applied {applied_jobs}, app_error {app_error}",
+        f"Pending not applied yet: {pending_total}",
+        "Why not applied yet:",
+        (
+            "- market-intel hold: "
+            f"{_to_int(pending.get('market_intelligence_only'))} "
+            "(below queue-fit threshold)"
+        ),
+        (
+            "- manual apply required: "
+            f"{_to_int(pending.get('manual_apply_required'))} "
+            "(not quick-apply listings)"
+        ),
+        (
+            "- needs review: "
+            f"{_to_int(pending.get('needs_review'))} "
+            "(close-call selection)"
+        ),
+        (f"- retry after app error: {_to_int(pending.get('application_error_retry'))}"),
+        (f"- ready in auto-apply queue: {_to_int(pending.get('ready_queue'))}"),
         f"Queue: auto {auto_queue}, market-intel {market_intel}",
         f"Funnel: applications {total_applied}, response {response_rate:.1f}%, interview {interview_rate:.1f}%",
         f"Feedback: tracked {tracked}, resolved {resolved}, positive {positive_rate:.1f}%",
@@ -354,8 +545,50 @@ def _build_status_message(snapshot: Dict) -> str:
         lines.append(f"Last job seen: {last_job.isoformat(timespec='seconds')}")
     if last_apply:
         lines.append(f"Last application: {last_apply.isoformat(timespec='seconds')}")
-    lines.append(f"Positioning: {_positioning_statement(total_applied, response_rate, interview_rate)}")
+    lines.append(f"Apply insight: {_build_pending_insight_line(pending)}")
+    lines.append(
+        f"Positioning: {_positioning_statement(total_applied, response_rate, interview_rate)}"
+    )
     return "\n".join(lines)
+
+
+def _build_end_of_day_message(snapshot: Dict) -> str:
+    today_start, _ = _window_bounds(1)
+    return "\n".join(
+        [
+            f"End-of-day update ({today_start.date().isoformat()})",
+            _build_status_message(snapshot),
+            "",
+            _build_concerns_message(snapshot),
+        ]
+    )
+
+
+def _maybe_send_daily_status_update(
+    client: TelegramClient,
+    chat_id: str,
+    schedule_time: dt_time,
+    now: Optional[datetime] = None,
+) -> bool:
+    target_chat_id = str(chat_id or "").strip()
+    if not target_chat_id:
+        return False
+
+    current = now or datetime.now()
+    send_after = datetime.combine(current.date(), schedule_time)
+    if current < send_after:
+        return False
+
+    today = current.date().isoformat()
+    if _last_daily_sent_for_chat(target_chat_id) == today:
+        return False
+
+    snapshot = _collect_snapshot()
+    text = _build_end_of_day_message(snapshot)
+    client.send_message(target_chat_id, text[:4000])
+    _mark_daily_sent_for_chat(target_chat_id, today)
+    logger.info(f"Daily Telegram status sent to chat_id={target_chat_id} for {today}.")
+    return True
 
 
 def _positioning_statement(
@@ -553,9 +786,40 @@ def run_bot(
     if allowed_chat_id:
         console.print(f"[dim]Allowed chat id: {allowed_chat_id}[/dim]")
 
+    daily_status_enabled = _is_truthy(
+        os.getenv("RONIN_TELEGRAM_DAILY_STATUS_ENABLED"),
+        default=True,
+    )
+    daily_status_time = _parse_hhmm_or_default(
+        str(os.getenv("RONIN_TELEGRAM_DAILY_STATUS_TIME") or "17:00")
+    )
+    if daily_status_enabled and not once:
+        if allowed_chat_id:
+            console.print(
+                "[dim]Daily status auto-send: "
+                f"{daily_status_time.strftime('%H:%M')} local time[/dim]"
+            )
+        else:
+            logger.warning(
+                "Daily Telegram status enabled but no chat_id is configured; "
+                "scheduled sends will be skipped."
+            )
+
     try:
         while True:
-            updates = client.get_updates(offset=offset, timeout=max(5, int(poll_timeout)))
+            if daily_status_enabled and allowed_chat_id and not once:
+                try:
+                    _maybe_send_daily_status_update(
+                        client=client,
+                        chat_id=str(allowed_chat_id),
+                        schedule_time=daily_status_time,
+                    )
+                except Exception as exc:
+                    logger.warning(f"Daily Telegram status send failed: {exc}")
+
+            updates = client.get_updates(
+                offset=offset, timeout=max(5, int(poll_timeout))
+            )
             if not updates:
                 if once:
                     return 0
